@@ -1,0 +1,40 @@
+[package]
+name = "tauri_gardesh-ui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+leptos = { git = "https://github.com/leptos-rs/leptos", features = ["csr"] }
+reactive_stores = { git = "https://github.com/leptos-rs/leptos", package = "reactive_stores" }
+reactive_stores_macro = { git = "https://github.com/leptos-rs/leptos", package = "reactive_stores_macro" }
+console_log = "1"
+log = "0.4.22"
+console_error_panic_hook = "0.1.7"
+chrono = { version = "0.4.38", features = ["serde"] }
+serde = { version = "1.0.214", features = ["derive"] }
+serde_json = "1.0.121"
+web-sys = { version = "0.3.69", features = ["Storage"] }
+
+wasm-bindgen = "0.2.93"
+wasm-bindgen-futures = "0.4.43"
+serde-wasm-bindgen = "0.6.5"
+similarity = "0.1.2"
+ndarray = "0.16.1"
+glob = "0.3.1"
+lopdf = "0.34.0"
+reqwest = { version = "0.12.9", features = ["json"] }
+enum_all_variants = "0.2.0"
+rand = { version = "0.8.5", default-features = false, features = ["std_rng"] }
+
+[workspace]
+members = ["src-tauri"]
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+panic = "abort"
+strip = true
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-04"]
