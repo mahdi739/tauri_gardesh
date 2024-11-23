@@ -28,3 +28,4 @@ serde_json = "1.0.132"
 tokio = { version = "1.41.0", features = ["full"] }
 kalosm = { version = "0.3.2", features = ["language", "vision", "surrealdb"] }
 vec-embed-store = { path = "vec-embed-store" }
+tauri-plugin-log = "2"

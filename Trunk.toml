@@ -1,18 +1,21 @@
 [build]
-filehash = true # If you set it to false the rebuild doesn't make page reload the new files
-no-sri=true
-
+filehash = true          # If you set it to false the rebuild doesn't make page reload the new files
+no-sri = true
+port = 1420
 # [build]
 # target = "./index.html"
 # filehash = false
 # no-sri=true
 
-# [watch]
-# ignore = ["./src-tauri"]
+[watch]
+ignore = ["./src-tauri"]
 
-# [serve]
-# # address = "0.0.0.0"
-# # port = 1420
-# # open = false
-# # ws_protocol = "ws"
+[serve]
+filehash = true          # If you set it to false the rebuild doesn't make page reload the new files
+no-sri = true
+port = 1420
+open = false
+ws_protocol = "ws"
+address = "0.0.0.0"
+
 # no-sri=true
