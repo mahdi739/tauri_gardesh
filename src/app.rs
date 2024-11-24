@@ -191,7 +191,7 @@ fn select_places(state: &State, places: Vec<Place>) -> Vec<String> {
 
 #[component]
 pub fn App() -> impl IntoView {
-  let places = serde_json::from_str::<Vec<Place>>(include_str!("../data.json")).unwrap();
+  // let places = serde_json::from_str::<Vec<Place>>(include_str!("../data.json")).unwrap();
   let state = Store::new(State::default());
   let prompt_text = RwSignal::new("".to_string());
   let answer_text = RwSignal::new("".to_string());
