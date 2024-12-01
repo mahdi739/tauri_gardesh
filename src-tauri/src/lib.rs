@@ -37,6 +37,18 @@ struct Model {
   items: Vec<Place>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct PromptClassification {
+  place_type: String,
+  count: u32,
+  prompt_slice: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct PromptClassificationArray {
+  items: Vec<PromptClassification>,
+}
+
 pub fn run() {
   dotenv().ok();
 
@@ -54,9 +66,12 @@ pub fn run() {
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn greet(name: String) -> ResponseModel {
+async fn greet(name: String) -> Vec<Place> {
+  use vec_embed_store::{EmbeddingEngineOptions, EmbeddingsDb, SimilaritySearch, TextChunk};
+
   let api_key = env::var("GROQ_API_KEY").expect("GROQ_API_KEY must be set");
   let client = Client::new();
+
   // let messages = vec![Message {
   //   role: "user".to_string(),
   //   content: format!(r#"Translate this text to English:\n{name}"#),
@@ -80,46 +95,31 @@ async fn greet(name: String) -> ResponseModel {
   //   .unwrap();
   // let translated_search_text = json_response["choices"][0]["message"]["content"].as_str().unwrap();
 
-  use vec_embed_store::{EmbeddingEngineOptions, EmbeddingsDb, SimilaritySearch, TextChunk};
-  let embedding_engine_options = EmbeddingEngineOptions {
-    // model_name: BGESmallENV15, // see https://docs.rs/fastembed/latest/fastembed/enum.EmbeddingModel.html
-    cache_dir: PathBuf::from("cache"),
-    show_download_progress: true,
-    ..Default::default()
-  };
-  // Create a new instance of EmbeddingsDb
-  let embed_db = EmbeddingsDb::new("fastembed-2", embedding_engine_options).await.unwrap();
-
-  // Define a text for similarity search
-  // let search_text = &input[1..].iter().cloned().collect::<String>();
-
-  // Perform a similarity search
-  let search_results =
-    embed_db.get_similar_to(&name).limit(5).threshold(0.8).execute().await.unwrap();
-
-  println!("Similarity search results:");
-  for result in search_results.iter() {
-    // let model = serde_json::from_str::<Model>(&result.text);
-    // println!("🟣🟣🟣place:🟣🟣🟣\n{:#?}", model);
-    println!("ID: {}, Text: {}, Distance: {}", result.id, result.text, result.distance);
-  }
-
   let messages = vec![Message {
     role: "user".to_string(),
     content: format!(
       r#"Only responde with valid Json without any wrapper nor introduction nor summary.
-      if there is nothing related, just return null.
-      Response format: {{"names":<string>[]}},
-      Context: {}.
+      Detect which place types the query request and how many of them.
+      Then devide the query into slices based on the place_type and put the related slice in the json struct.
+      Response format: 
+      {{
+        items: [
+          {{
+            place_type: "restaurant",
+            count: 1,
+            prompt_slice: ""
+          }}
+        ],
+      }}
+      Possible place_types: ["restaurant","museum","historical"],
       Query: {name}"#,
-      search_results.into_iter().map(|f| f.text).join("\n"),
     ),
   }];
   println!("\n\n🔴🔴🔴🔴🔴🔴🔴  Message:\n{messages:#?}\n🔴🔴🔴🔴🔴🔴\n\n");
   let request = CompletionRequest {
     response_format: HashMap::from([("type".to_string(), "json_object".to_string())]),
     temperature: 0,
-    model: "llama3-8b-8192".to_string(),
+    model: "gemma2-9b-it".to_string(),
     messages,
   };
   let json_response = client
@@ -132,17 +132,188 @@ async fn greet(name: String) -> ResponseModel {
     .json::<Value>()
     .await
     .unwrap();
-  println!("{}", &json_response);
-
-  // let text_response = json_response["choices"][0]["message"]["content"].as_str().unwrap();
-  let response_model = serde_json::from_str::<ResponseModel>(&format!(
+  let prompt_classification_array = serde_json::from_str::<PromptClassificationArray>(&format!(
     "{}",
     json_response["choices"][0]["message"]["content"].as_str().unwrap()
   ))
   .unwrap();
+  println!("🟣🟣🟣\n{prompt_classification_array:#?}\n🟣🟣🟣");
+  let mut final_places = Vec::<Place>::new();
+  for prompt_item in prompt_classification_array.items {
+    match prompt_item.place_type.as_str() {
+      "restaurant" => {
+        println!("🟡 Finding restaurants");
+        let embedding_engine_options = EmbeddingEngineOptions {
+          // model_name: BGESmallENV15, // see https://docs.rs/fastembed/latest/fastembed/enum.EmbeddingModel.html
+          cache_dir: PathBuf::from("cache-restaurant"),
+          show_download_progress: true,
+          ..Default::default()
+        };
+        // Create a new instance of EmbeddingsDb
+        let embed_db =
+          EmbeddingsDb::new("fastembed-restaurant", embedding_engine_options).await.unwrap();
 
-  println!("✅✅✅✅\n{response_model:#?}\n✅✅✅✅");
-  response_model
+        // Define a text for similarity search
+        // let search_text = &input[1..].iter().cloned().collect::<String>();
+
+        // Perform a similarity search
+        let search_results = embed_db
+          .get_similar_to(&prompt_item.prompt_slice)
+          .limit(prompt_item.count as usize)
+          .threshold(0.8)
+          .execute()
+          .await
+          .unwrap();
+        final_places.extend(
+          search_results
+            .iter()
+            .inspect(|f| println!("{f:#?}"))
+            .map(|f| serde_json::from_str::<Place>(&f.text).unwrap()),
+        );
+
+        // for result in search_results.iter() {
+        //   // let model = serde_json::from_str::<Model>(&result.text);
+        //   // println!("🟣🟣🟣place:🟣🟣🟣\n{:#?}", model);
+        //   println!("ID: {},\n Text: {},\n Distance: {}\n", result.id, result.text, result.distance);
+        // }
+      }
+      "museum" => {
+        println!("🟡 Finding museum");
+        let embedding_engine_options = EmbeddingEngineOptions {
+          // model_name: BGESmallENV15, // see https://docs.rs/fastembed/latest/fastembed/enum.EmbeddingModel.html
+          cache_dir: PathBuf::from("cache-museum"),
+          show_download_progress: true,
+          ..Default::default()
+        };
+        // Create a new instance of EmbeddingsDb
+        let embed_db =
+          EmbeddingsDb::new("fastembed-museum", embedding_engine_options).await.unwrap();
+
+        // Define a text for similarity search
+        // let search_text = &input[1..].iter().cloned().collect::<String>();
+
+        // Perform a similarity search
+        let search_results = embed_db
+          .get_similar_to(&prompt_item.prompt_slice)
+          .limit(prompt_item.count as usize)
+          .threshold(0.8)
+          .execute()
+          .await
+          .unwrap();
+        final_places.extend(
+          search_results
+            .iter()
+            .inspect(|f| println!("{:#?}", f.text))
+            .map(|f| serde_json::from_str::<Place>(&f.text).unwrap()),
+        );
+        // for result in search_results.iter() {
+        //   // let model = serde_json::from_str::<Model>(&result.text);
+        //   // println!("🟣🟣🟣place:🟣🟣🟣\n{:#?}", model);
+        //   println!("ID: {},\n Text: {},\n Distance: {}\n", result.id, result.text, result.distance);
+        // }
+      }
+      "historical" => {
+        println!("🟡 Finding historical");
+        let embedding_engine_options = EmbeddingEngineOptions {
+          // model_name: BGESmallENV15, // see https://docs.rs/fastembed/latest/fastembed/enum.EmbeddingModel.html
+          cache_dir: PathBuf::from("cache-history"),
+          show_download_progress: true,
+          ..Default::default()
+        };
+        // Create a new instance of EmbeddingsDb
+        let embed_db =
+          EmbeddingsDb::new("fastembed-history", embedding_engine_options).await.unwrap();
+
+        // Define a text for similarity search
+        // let search_text = &input[1..].iter().cloned().collect::<String>();
+
+        // Perform a similarity search
+        let search_results = embed_db
+          .get_similar_to(&prompt_item.prompt_slice)
+          .limit(prompt_item.count as usize)
+          .threshold(0.8)
+          .execute()
+          .await
+          .unwrap();
+        final_places.extend(
+          search_results
+            .iter()
+            .inspect(|f| println!("{f:#?}"))
+            .map(|f| serde_json::from_str::<Place>(&f.text).unwrap()),
+        );
+        // for result in search_results.iter() {
+        //   // let model = serde_json::from_str::<Model>(&result.text);
+        //   // println!("🟣🟣🟣place:🟣🟣🟣\n{:#?}", model);
+        //   println!("ID: {},\n Text: {},\n Distance: {}\n", result.id, result.text, result.distance);
+        // }
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  // let embedding_engine_options = EmbeddingEngineOptions {
+  //   // model_name: BGESmallENV15, // see https://docs.rs/fastembed/latest/fastembed/enum.EmbeddingModel.html
+  //   cache_dir: PathBuf::from("cache-3"),
+  //   show_download_progress: true,
+  //   ..Default::default()
+  // };
+  // // Create a new instance of EmbeddingsDb
+  // let embed_db = EmbeddingsDb::new("fastembed-3", embedding_engine_options).await.unwrap();
+
+  // // Define a text for similarity search
+  // // let search_text = &input[1..].iter().cloned().collect::<String>();
+
+  // // Perform a similarity search
+  // let search_results =
+  //   embed_db.get_similar_to(&name).limit(5).threshold(0.8).execute().await.unwrap();
+
+  // println!("Similarity search results:");
+  // for result in search_results.iter() {
+  //   // let model = serde_json::from_str::<Model>(&result.text);
+  //   // println!("🟣🟣🟣place:🟣🟣🟣\n{:#?}", model);
+  //   println!("ID: {}, Text: {}, Distance: {}", result.id, result.text, result.distance);
+  // }
+
+  // let messages = vec![Message {
+  //   role: "user".to_string(),
+  //   content: format!(
+  //     r#"Only responde with valid Json without any wrapper nor introduction nor summary.
+  //     if there is nothing related, just return null.
+  //     Response format: {{"names":<string>[]}},
+  //     Context: {}.
+  //     Query: {name}"#,
+  //     search_results.into_iter().map(|f| f.text).join("\n"),
+  //   ),
+  // }];
+  // println!("\n\n🔴🔴🔴🔴🔴🔴🔴  Message:\n{messages:#?}\n🔴🔴🔴🔴🔴🔴\n\n");
+  // let request = CompletionRequest {
+  //   response_format: HashMap::from([("type".to_string(), "json_object".to_string())]),
+  //   temperature: 0,
+  //   model: "llama3-8b-8192".to_string(),
+  //   messages,
+  // };
+  // let json_response = client
+  //   .post("https://api.groq.com/openai/v1/chat/completions")
+  //   .header(header::AUTHORIZATION, format!("Bearer {}", api_key))
+  //   .json(&request)
+  //   .send()
+  //   .await
+  //   .unwrap()
+  //   .json::<Value>()
+  //   .await
+  //   .unwrap();
+  // println!("{}", &json_response);
+
+  // // let text_response = json_response["choices"][0]["message"]["content"].as_str().unwrap();
+  // let response_model = serde_json::from_str::<ResponseModel>(&format!(
+  //   "{}",
+  //   json_response["choices"][0]["message"]["content"].as_str().unwrap()
+  // ))
+  // .unwrap();
+  // println!("✅✅✅✅\n{response_model:#?}\n✅✅✅✅");
+
+  println!("✅✅✅✅\n{final_places:#?}\n✅✅✅✅");
+  final_places
 }
 
 #[derive(Debug, Serialize)]

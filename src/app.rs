@@ -1,24 +1,29 @@
 #![allow(unused)]
 
+use dotenvy_macro::dotenv;
 use enum_all_variants::AllVariants;
 use leptos::leptos_dom::logging::console_log;
 use rand::seq::SliceRandom;
 use reactive_stores::{OptionStoreExt as _, Store, StoreFieldIterator};
 use serde_json::to_value;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::{
   fs::read_to_string,
   hash::{Hash, Hasher},
   ops::Not,
 };
 use wasm_bindgen::prelude::*;
+use web_sys::js_sys::{Array, Object, Reflect};
 
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 use leptos::{either::Either, prelude::*, task::spawn_local};
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
+use web_sys::{window, Window};
 use web_sys::{InputEvent, MouseEvent, SubmitEvent};
-
 #[wasm_bindgen]
 extern "C" {
   #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
@@ -54,16 +59,38 @@ enum PlaceType {
   Mosque,
 }
 impl PlaceType {
-  pub fn from_str(name: impl AsRef<str>) -> PlaceType {
+  pub fn from_str_fa(name: impl AsRef<str>) -> PlaceType {
     match name.as_ref() {
       "موزه" => PlaceType::Museum,
       "پارک" => PlaceType::Park,
+      "پارک تفریحی" => PlaceType::ThemePark,
+      "رستوران" => PlaceType::FineDining,
+      "فست‌فود" => PlaceType::FastFood,
+      "کافه" => PlaceType::Cafe,
+      "غذای خیابانی" => PlaceType::StreetFood,
+      "بنای تاریخی" => PlaceType::Monument,
+      "تئاتر" => PlaceType::Theater,
+      "سالن کنسرت" => PlaceType::ConcertHall,
+      "سینما" => PlaceType::Cinema,
+      "شهربازی" => PlaceType::AmusementPark,
+      "مرکز خرید" => PlaceType::Mall,
+      "بازار" => PlaceType::Market,
+      "فروشگاه سوغات" => PlaceType::SouvenirShop,
+      "مسجد" => PlaceType::Mosque,
+      _ => panic!("No Place Found"),
+    }
+  }
+  pub fn from_str_en(name: impl AsRef<str>) -> PlaceType {
+    // TODO: Complete this
+    match name.as_ref() {
+      "museum" => PlaceType::Museum,
+      "park" => PlaceType::Park,
       "پارک تفریحی" => PlaceType::ThemePark,
       "رستوران عالی" => PlaceType::FineDining,
       "فست‌فود" => PlaceType::FastFood,
       "کافه" => PlaceType::Cafe,
       "غذای خیابانی" => PlaceType::StreetFood,
-      "بنای تاریخی" => PlaceType::Monument,
+      "historical" => PlaceType::Monument,
       "تئاتر" => PlaceType::Theater,
       "سالن کنسرت" => PlaceType::ConcertHall,
       "سینما" => PlaceType::Cinema,
@@ -96,6 +123,7 @@ impl PlaceType {
     }
   }
 }
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Location {
   x: f64,
@@ -169,7 +197,7 @@ fn select_places(state: &State, places: Vec<Place>) -> Vec<String> {
   let selected_types: HashSet<_> = state.select_places.iter().map(|sp| &sp.place_type).collect();
   let mut filtered_places: Vec<_> = places
     .into_iter()
-    .filter(|place| selected_types.contains(&PlaceType::from_str(&place.r#type)))
+    .filter(|place| selected_types.contains(&PlaceType::from_str_fa(&place.r#type)))
     .collect();
 
   shuffle_vec(&mut filtered_places);
@@ -188,51 +216,164 @@ fn select_places(state: &State, places: Vec<Place>) -> Vec<String> {
   }
   selected_places.iter().map(|f| f.title.clone()).collect::<Vec<String>>()
 }
-
+#[wasm_bindgen]
+extern "C" {
+  #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
+  type Map;
+  #[wasm_bindgen(constructor, js_namespace = nmp_mapboxgl)]
+  fn newMap(options: &JsValue) -> Map;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn addTo(this: &Map, container: &JsValue);
+  #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
+  type Marker;
+  #[wasm_bindgen(constructor, js_namespace = nmp_mapboxgl)]
+  fn newMarker() -> Marker;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn setLngLat(this: &Marker, lng_lat: &JsValue) -> Marker;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn addTo(this: &Marker, map: &Map);
+}
 #[component]
 pub fn App() -> impl IntoView {
+  console_log(&"App is Called");
+  let options = Object::new();
+  Reflect::set(&options, &JsValue::from_str("mapType"), &JsValue::from_str("neshanVector"))
+    .unwrap();
+  Reflect::set(&options, &JsValue::from_str("container"), &JsValue::from_str("map")).unwrap();
+  Reflect::set(&options, &JsValue::from_str("zoom"), &JsValue::from_f64(14.0)).unwrap();
+  Reflect::set(&options, &JsValue::from_str("pitch"), &JsValue::from_f64(0.0)).unwrap();
+  Reflect::set(
+    &options,
+    &JsValue::from_str("center"),
+    &JsValue::from(Array::of2(&JsValue::from_f64(51.391173), &JsValue::from_f64(35.700954))),
+  )
+  .unwrap();
+  Reflect::set(&options, &JsValue::from_str("minZoom"), &JsValue::from_f64(2.0)).unwrap();
+  Reflect::set(&options, &JsValue::from_str("maxZoom"), &JsValue::from_f64(21.0)).unwrap();
+  Reflect::set(&options, &JsValue::from_str("trackResize"), &JsValue::from_bool(true)).unwrap();
+  Reflect::set(
+    &options,
+    &JsValue::from_str("mapKey"),
+    &JsValue::from_str(dotenv!("NESHAN_API_KEY")),
+  )
+  .unwrap();
+  Reflect::set(&options, &JsValue::from_str("poi"), &JsValue::from_bool(false)).unwrap();
+  Reflect::set(&options, &JsValue::from_str("traffic"), &JsValue::from_bool(false)).unwrap();
+  let map_controller_options = Object::new();
+  Reflect::set(&map_controller_options, &JsValue::from_str("show"), &JsValue::from_bool(true))
+    .unwrap();
+  Reflect::set(
+    &map_controller_options,
+    &JsValue::from_str("position"),
+    &JsValue::from_str("bottom-left"),
+  )
+  .unwrap();
+  Reflect::set(
+    &options,
+    &JsValue::from_str("mapTypeControllerOptions"),
+    &JsValue::from(map_controller_options),
+  )
+  .unwrap();
+  console_log(&"7");
+  console_log(&"Map was created");
+
+  let map_ref: Rc<RefCell<Option<Map>>> = Rc::new(RefCell::new(None));
+  let map_ref_clone = map_ref.clone();
+  request_animation_frame(move || {
+    *map_ref_clone.borrow_mut() = Some(Map::newMap(&JsValue::from(options)));
+    // map.add_to(&JsValue::from_str("map"));
+  });
+
   // let places = serde_json::from_str::<Vec<Place>>(include_str!("../data.json")).unwrap();
   let state = Store::new(State::default());
   let prompt_text = RwSignal::new("".to_string());
   let answer_text = RwSignal::new("".to_string());
-  let t = RwSignal::new(String::new());
+  // let t = RwSignal::new(String::new());
+  let places = RwSignal::new(Vec::<Place>::new());
+  let map_ref_clone = map_ref.clone();
+  Effect::new(move || {
+    console_log(&"PLaces changed!");
+    for p in places.get() {
+      let marker = Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
+        &JsValue::from_f64(p.location.x),
+        &JsValue::from_f64(p.location.y),
+      )));
+      map_ref_clone.borrow().as_ref().map(|f| {
+        marker.addTo(&f);
+      });
+    }
+  });
   let answer = move |ev: MouseEvent| {
     ev.prevent_default();
 
-    log::info!("Tauri is awesome!");
-    t.set("Hi From outside of the spaawn".to_string());
+    // t.set("Hi From outside of the spaawn".to_string());
     console_log("Hi From outside of the spaawn");
     spawn_local(async move {
       console_log("Hi");
       // let args = to_value(&CounterArgs { count }).unwrap();
-      t.set(format!(
-        "{:#?}",
-        serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() })
-      ));
+      // t.set(format!(
+      //   "{:#?}",
+      //   serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() })
+      // ));
       let args = serde_wasm_bindgen::to_value(&GreetArgs { name: prompt_text.get() }).unwrap();
       // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
       let new_msg =
-        serde_wasm_bindgen::from_value::<ResponseModel>(invoke("greet", args).await).unwrap();
+        serde_wasm_bindgen::from_value::<Vec<Place>>(invoke("greet", args).await).unwrap();
 
-      // let res = invoke(
-      //   "answer",
-      //   serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() }).unwrap(),
-      // )
-      // .await;
-      let dataset = serde_json::from_str::<Model>(include_str!(
-        "neshan_history_results_unique_with_tags_translated.json"
-      ))
-      .unwrap();
-      let filtered =
-        dataset.items.iter().filter(|f| new_msg.names.contains(&f.title)).collect::<Vec<_>>();
+      // // let res = invoke(
+      // //   "answer",
+      // //   serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() }).unwrap(),
+      // // )
+      // // .await;
+      // let dataset = {
+      //   let mut _neshan_all = Model { items: Vec::with_capacity(512) };
+      //   _neshan_all.items.extend(
+      //     serde_json::from_str::<Model>(include_str!(
+      //       "neshan_history_results_unique_with_tags_translated.json"
+      //     ))
+      //     .unwrap()
+      //     .items,
+      //   );
+      //   _neshan_all.items.extend(
+      //     serde_json::from_str::<Model>(include_str!(
+      //       "neshan_museum_results_unique_with_tags_translated.json"
+      //     ))
+      //     .unwrap()
+      //     .items,
+      //   );
+      //   _neshan_all.items.extend(
+      //     serde_json::from_str::<Model>(include_str!(
+      //       "neshan_restaurant_results_unique_with_tags_translated.json"
+      //     ))
+      //     .unwrap()
+      //     .items,
+      //   );
+      //   _neshan_all
+      // };
+      // let filtered =
+      //   dataset.items.into_iter().filter(|f| new_msg.names.contains(&f.title)).collect::<Vec<_>>();
+      // places.set(filtered.clone());
+      // // t.set(format!("{:#?}", filtered.clone()));
+      // // console_log(&res);
+      // // answer_text.set(res);
+      // answer_text.set(format!("{new_msg:#?}"));
 
-      t.set(format!("{:#?}", filtered.clone()));
-      // console_log(&res);
-      // answer_text.set(res);
+      places.set(new_msg);
     });
   };
+
+  console_log(&"About to rendering view");
   view! {
     <div>
+      <style>
+        "
+                 #map{
+                        height: 500px;
+                        width: 500px;
+                    }"
+      </style>
+      <div id="map"></div>
+
       <label>"Number of Places: "</label>
       <label>"Number of Places: "</label>
       <input type="number" bind:value=state.num_places() />
@@ -253,12 +394,143 @@ pub fn App() -> impl IntoView {
       </div>
       <input type="text" name="prompt" id="prompt" bind:value=prompt_text />
       <button on:click=answer>"Generate Suggestion"</button>
-      <p dir="auto">{move || t.get()}</p>
       {move || answer_text.get()}
+      <PlacesList places />
     </div>
   }
 }
+//       <script>
+//         {format!(
+//           r#"
+//         const neshanMap = new nmp_mapboxgl.Map({{
+//             mapType: nmp_mapboxgl.Map.mapTypes.neshanVector,
+//             container: "map",
+//             zoom: 14,
+//             pitch: 0,
+//             center: [51.391173, 35.700954],
+//             minZoom: 2,
+//             maxZoom: 21,
+//             trackResize: true,
+//             mapKey: "{neshan_api}",
+//             poi: false,
+//             traffic: false,
+//             mapTypeControllerOptions: {{
+//                 show: true,
+//                 position: 'bottom-left'
+//     }}
+//     }});
+
+//         // var marker = new nmp_mapboxgl.Marker()
+//         //     .setLngLat([51.47025848372447, 35.67586817813384])
+//         //     .addTo(neshanMap);
+//         // var marker = new nmp_mapboxgl.Marker()
+//         //     .setLngLat([51.44158950000002, 35.709454500000014])
+//         //     .addTo(neshanMap);
+//         // var marker = new nmp_mapboxgl.Marker()
+//         //     .setLngLat([51.42911965029056, 35.690335917469135])
+//         //     .addTo(neshanMap);
+//           // window.addNewMarker = function(lng, lat) {{
+//           //   var marker = new nmp_mapboxgl.Marker().setLngLat([lng, lat]).addTo(neshanMap);
+//           // }};
+
+// "#,
+//         )}
+//       </script>
+// <p dir="auto">{move || t.get()}</p>
 // move |ev| {
 //           console_log(&format!("SALAM"));
 //           state.result().set(format!("{:#?}", select_places(&state.read(), places.clone())));
 //         }
+
+#[component]
+fn PlaceCard(place: Place) -> impl IntoView {
+  view! {
+    <div class="card">
+      <h2>{place.title}</h2>
+      <p>
+        <strong>"Category:"</strong>
+        {place.category}
+      </p>
+      <p>
+        <strong>"Type:"</strong>
+        {place.r#type}
+      </p>
+      <p>
+        <strong>"Region:"</strong>
+        {place.region}
+      </p>
+      <p>
+        <strong>"Neighbourhood:"</strong>
+        {place.neighbourhood}
+      </p>
+      <p>
+        <strong>"Location:"</strong>
+        {format!("{}, {}, {}", place.location.x, place.location.y, place.location.z)}
+      </p>
+      <p>
+        <strong>Tags:</strong>
+        {place.tags.join(", ")}
+      </p>
+    </div>
+  }
+}
+
+#[component]
+fn PlacesList(#[prop(into)] places: Signal<Vec<Place>>) -> impl IntoView {
+  view! {
+    <div class="wrapper">
+      <ol class="c-stepper">
+        {move || {
+          places
+            .get()
+            .into_iter()
+            .map(|place| {
+              view! {
+                <li class="c-stepper__item">
+
+                  <div class="c-stepper__content">
+                    <PlaceCard place />
+                  </div>
+                </li>
+              }
+            })
+            .collect_view()
+        }}
+      </ol>
+    </div>
+  }
+}
+
+// <ol class="stepper">
+//   {move || {
+//     places
+//       .get()
+//       .into_iter()
+//       .map(|place| {
+//         view! {
+//           <li>
+//             <div class="step">
+//               <PlaceCard place />
+//             </div>
+//           </li>
+//         }
+//       })
+//       .collect_view()
+//   }}  <li>Step B</li> <li class="active">End</li>
+// </ol>
+
+// <div class="places-list">
+//   {move || {
+//     places
+//       .get()
+//       .into_iter()
+//       .map(|place| {
+//         view! {
+//           <div class="step">
+//             <PlaceCard place />
+//           </div>
+//         }
+//       })
+//       .collect_view()
+//   }}
+// </div>
