@@ -3,6 +3,7 @@
 use dotenvy_macro::dotenv;
 use enum_all_variants::AllVariants;
 use leptos::leptos_dom::logging::console_log;
+use leptos::tachys::html::property::IntoProperty;
 use rand::seq::SliceRandom;
 use reactive_stores::{OptionStoreExt as _, Store, StoreFieldIterator};
 use serde_json::to_value;
@@ -16,7 +17,7 @@ use std::{
   ops::Not,
 };
 use wasm_bindgen::prelude::*;
-use web_sys::js_sys::{Array, Object, Reflect};
+use web_sys::js_sys::{Array, JsString, Object, Reflect};
 
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 use leptos::{either::Either, prelude::*, task::spawn_local};
@@ -219,19 +220,30 @@ fn select_places(state: &State, places: Vec<Place>) -> Vec<String> {
 #[wasm_bindgen]
 extern "C" {
   #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
+  #[derive(Clone)]
   type Map;
   #[wasm_bindgen(constructor, js_namespace = nmp_mapboxgl)]
   fn newMap(options: &JsValue) -> Map;
   #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
   fn addTo(this: &Map, container: &JsValue);
   #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
+  #[derive(Clone)]
   type Marker;
   #[wasm_bindgen(constructor, js_namespace = nmp_mapboxgl)]
   fn newMarker() -> Marker;
   #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
   fn setLngLat(this: &Marker, lng_lat: &JsValue) -> Marker;
   #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
-  fn addTo(this: &Marker, map: &Map);
+  fn addTo(this: &Marker, map: &Map) -> Marker;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn remove(this: &Marker);
+  #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
+  type LngLat;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn toString(this: &LngLat) -> JsString;
+  #[wasm_bindgen(method, js_namespace = nmp_mapboxgl)]
+  fn getLngLat(this: &Marker) -> LngLat;
+
 }
 #[component]
 pub fn App() -> impl IntoView {
@@ -240,7 +252,7 @@ pub fn App() -> impl IntoView {
   Reflect::set(&options, &JsValue::from_str("mapType"), &JsValue::from_str("neshanVector"))
     .unwrap();
   Reflect::set(&options, &JsValue::from_str("container"), &JsValue::from_str("map")).unwrap();
-  Reflect::set(&options, &JsValue::from_str("zoom"), &JsValue::from_f64(14.0)).unwrap();
+  Reflect::set(&options, &JsValue::from_str("zoom"), &JsValue::from_f64(10.0)).unwrap();
   Reflect::set(&options, &JsValue::from_str("pitch"), &JsValue::from_f64(0.0)).unwrap();
   Reflect::set(
     &options,
@@ -276,11 +288,52 @@ pub fn App() -> impl IntoView {
   .unwrap();
   console_log(&"7");
   console_log(&"Map was created");
+  let places = RwSignal::new(Vec::<Place>::new());
+  let markers = StoredValue::new_local(Vec::<Marker>::new());
+  let map_ref: RwSignal<Option<Map>, LocalStorage> = RwSignal::new_local(None);
+  Effect::new(move |pre_places: Option<Vec<Place>>| {
+    if let Some(pre_places) = pre_places {
+      markers.get_value().iter().for_each(Marker::remove);
+      markers.set_value(
+        places
+          .get()
+          .iter()
+          .map(|place| {
+            let marker = Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
+              &JsValue::from_f64(place.location.x),
+              &JsValue::from_f64(place.location.y),
+            )));
+            marker.addTo(map_ref.get().as_ref().unwrap());
+            marker
+          })
+          .collect::<Vec<_>>(),
+      );
+      // for (index, m) in markers.get().iter().enumerate() {
+      //   map_ref_clone.borrow().as_ref().map(|f| {
+      //     console_log(&format!("Adding marker {index}"));
 
-  let map_ref: Rc<RefCell<Option<Map>>> = Rc::new(RefCell::new(None));
-  let map_ref_clone = map_ref.clone();
+      //     // m.borrow().remove();
+      //   });
+      // }
+    }
+    places.get()
+  });
+  // let markers = Signal::derive_local(move || {
+  //   places
+  //     .get()
+  //     .into_iter()
+  //     .map(|p| {
+  //       Rc::new(RefCell::new(Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
+  //         &JsValue::from_f64(p.location.x),
+  //         &JsValue::from_f64(p.location.y),
+  //       )))))
+  //     })
+  //     .collect::<Vec<_>>()
+  // });
+
+  // let map_ref_clone = map_ref.clone();
   request_animation_frame(move || {
-    *map_ref_clone.borrow_mut() = Some(Map::newMap(&JsValue::from(options)));
+    map_ref.set(Some(Map::newMap(&JsValue::from(options))));
     // map.add_to(&JsValue::from_str("map"));
   });
 
@@ -289,20 +342,28 @@ pub fn App() -> impl IntoView {
   let prompt_text = RwSignal::new("".to_string());
   let answer_text = RwSignal::new("".to_string());
   // let t = RwSignal::new(String::new());
-  let places = RwSignal::new(Vec::<Place>::new());
-  let map_ref_clone = map_ref.clone();
-  Effect::new(move || {
-    console_log(&"PLaces changed!");
-    for p in places.get() {
-      let marker = Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
-        &JsValue::from_f64(p.location.x),
-        &JsValue::from_f64(p.location.y),
-      )));
-      map_ref_clone.borrow().as_ref().map(|f| {
-        marker.addTo(&f);
-      });
-    }
-  });
+  // let map_ref_clone = map_ref.clone();
+  // Effect::new(move |pre_markers: Option<Vec<Rc<RefCell<Marker>>>>| {
+  //   console_log(&"Running Effect");
+  //   // if let Some(pre_markers) = pre_markers {
+  //   //   for m in pre_markers {
+  //   //     map_ref_clone.borrow().as_ref().map(|f| {
+  //   //       console_log(&"Removing marker");
+  //   //       console_log(&format!("{:#?}", m.borrow().getLngLat().toString()));
+  //   //       m.borrow().remove();
+  //   //     });
+  //   //   }
+  //   // }
+  //   for (index, m) in markers.get().iter().enumerate() {
+  //     map_ref_clone.borrow().as_ref().map(|f| {
+  //       console_log(&format!("Adding marker {index}"));
+  //       m.borrow().addTo(f);
+
+  //       // m.borrow().remove();
+  //     });
+  //   }
+  //   markers.get()
+  // });
   let answer = move |ev: MouseEvent| {
     ev.prevent_default();
 
