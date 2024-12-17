@@ -1,12 +1,15 @@
 #![allow(unused)]
+use rand::{rngs::StdRng, Rng as _, SeedableRng};
 use std::{collections::HashMap, env, fmt::Debug, path::PathBuf};
 use tauri_plugin_log::{Target, TargetKind};
+use tokio::sync::Mutex;
 
 use dotenv::dotenv;
 use iter_tools::Itertools;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::Instant;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Location {
@@ -67,6 +70,35 @@ pub fn run() {
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 async fn greet(name: String) -> Vec<Place> {
+  let mut rng: StdRng = StdRng::from_entropy();
+
+  let random_points = (0..20000)
+    .map(|_| {
+      let lat = rng.gen_range(35.60..=35.80);
+      let lng = rng.gen_range(51.20..=51.50);
+      [lat, lng]
+    })
+    .collect::<Vec<_>>();
+  use rstar::RTree;
+  let tree = RTree::bulk_load(random_points);
+  let n = Instant::now();
+  let random_points = (0..10)
+    .map(|_| {
+      let lat = rng.gen_range(35.60..=35.80);
+      let lng = rng.gen_range(51.20..=51.50);
+      [lat, lng]
+    })
+    .for_each(|f| {
+      let nearest_neighbors = tree.nearest_neighbor_iter(&f).collect::<Vec<_>>();
+
+      println!("{nearest_neighbors:#?}");
+    });
+
+  println!("Time Passed: {}", n.elapsed().as_millis());
+
+  // Lat: 35.60 - 35.80
+  // Long: 51.20 - 51.50
+
   use vec_embed_store::{EmbeddingEngineOptions, EmbeddingsDb, SimilaritySearch, TextChunk};
 
   let api_key = env::var("GROQ_API_KEY").expect("GROQ_API_KEY must be set");

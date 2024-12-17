@@ -4,7 +4,6 @@ use dotenvy_macro::dotenv;
 use enum_all_variants::AllVariants;
 use leptos::leptos_dom::logging::console_log;
 use leptos::tachys::html::property::IntoProperty;
-use rand::seq::SliceRandom;
 use reactive_stores::{OptionStoreExt as _, Store, StoreFieldIterator};
 use serde_json::to_value;
 use std::cell::RefCell;
@@ -17,6 +16,8 @@ use std::{
   ops::Not,
 };
 use wasm_bindgen::prelude::*;
+use web_sys::console::time;
+use web_sys::js_sys::Math::random;
 use web_sys::js_sys::{Array, JsString, Object, Reflect};
 
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
@@ -183,7 +184,6 @@ impl Default for State {
 }
 
 fn shuffle_vec<T: Debug>(vec: &mut Vec<T>) {
-  // console_log(&format!("{vec:#?}"));
   let len = vec.len();
   for i in 0..len {
     let j = (web_sys::js_sys::Math::random() * (len as f64)) as usize;
@@ -291,147 +291,56 @@ pub fn App() -> impl IntoView {
   let places = RwSignal::new(Vec::<Place>::new());
   let markers = StoredValue::new_local(Vec::<Marker>::new());
   let map_ref: RwSignal<Option<Map>, LocalStorage> = RwSignal::new_local(None);
-  Effect::new(move |pre_places: Option<Vec<Place>>| {
-    if let Some(pre_places) = pre_places {
+  Effect::new(move |old_places: Option<Vec<Place>>| {
+    if let Some(old_places) = old_places {
       markers.get_value().iter().for_each(Marker::remove);
       markers.set_value(
         places
           .get()
           .iter()
           .map(|place| {
-            let marker = Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
+            Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
               &JsValue::from_f64(place.location.x),
               &JsValue::from_f64(place.location.y),
-            )));
+            )))
+          })
+          .inspect(|marker| {
             marker.addTo(map_ref.get().as_ref().unwrap());
-            marker
           })
           .collect::<Vec<_>>(),
       );
-      // for (index, m) in markers.get().iter().enumerate() {
-      //   map_ref_clone.borrow().as_ref().map(|f| {
-      //     console_log(&format!("Adding marker {index}"));
-
-      //     // m.borrow().remove();
-      //   });
-      // }
     }
     places.get()
   });
-  // let markers = Signal::derive_local(move || {
-  //   places
-  //     .get()
-  //     .into_iter()
-  //     .map(|p| {
-  //       Rc::new(RefCell::new(Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
-  //         &JsValue::from_f64(p.location.x),
-  //         &JsValue::from_f64(p.location.y),
-  //       )))))
-  //     })
-  //     .collect::<Vec<_>>()
-  // });
-
-  // let map_ref_clone = map_ref.clone();
   request_animation_frame(move || {
     map_ref.set(Some(Map::newMap(&JsValue::from(options))));
-    // map.add_to(&JsValue::from_str("map"));
   });
 
-  // let places = serde_json::from_str::<Vec<Place>>(include_str!("../data.json")).unwrap();
   let state = Store::new(State::default());
   let prompt_text = RwSignal::new("".to_string());
   let answer_text = RwSignal::new("".to_string());
-  // let t = RwSignal::new(String::new());
-  // let map_ref_clone = map_ref.clone();
-  // Effect::new(move |pre_markers: Option<Vec<Rc<RefCell<Marker>>>>| {
-  //   console_log(&"Running Effect");
-  //   // if let Some(pre_markers) = pre_markers {
-  //   //   for m in pre_markers {
-  //   //     map_ref_clone.borrow().as_ref().map(|f| {
-  //   //       console_log(&"Removing marker");
-  //   //       console_log(&format!("{:#?}", m.borrow().getLngLat().toString()));
-  //   //       m.borrow().remove();
-  //   //     });
-  //   //   }
-  //   // }
-  //   for (index, m) in markers.get().iter().enumerate() {
-  //     map_ref_clone.borrow().as_ref().map(|f| {
-  //       console_log(&format!("Adding marker {index}"));
-  //       m.borrow().addTo(f);
-
-  //       // m.borrow().remove();
-  //     });
-  //   }
-  //   markers.get()
-  // });
   let answer = move |ev: MouseEvent| {
     ev.prevent_default();
 
-    // t.set("Hi From outside of the spaawn".to_string());
     console_log("Hi From outside of the spaawn");
     spawn_local(async move {
       console_log("Hi");
-      // let args = to_value(&CounterArgs { count }).unwrap();
-      // t.set(format!(
-      //   "{:#?}",
-      //   serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() })
-      // ));
       let args = serde_wasm_bindgen::to_value(&GreetArgs { name: prompt_text.get() }).unwrap();
       // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
       let new_msg =
         serde_wasm_bindgen::from_value::<Vec<Place>>(invoke("greet", args).await).unwrap();
 
-      // // let res = invoke(
-      // //   "answer",
-      // //   serde_wasm_bindgen::to_value(&AnswerArgs { search_text: prompt_text.get() }).unwrap(),
-      // // )
-      // // .await;
-      // let dataset = {
-      //   let mut _neshan_all = Model { items: Vec::with_capacity(512) };
-      //   _neshan_all.items.extend(
-      //     serde_json::from_str::<Model>(include_str!(
-      //       "neshan_history_results_unique_with_tags_translated.json"
-      //     ))
-      //     .unwrap()
-      //     .items,
-      //   );
-      //   _neshan_all.items.extend(
-      //     serde_json::from_str::<Model>(include_str!(
-      //       "neshan_museum_results_unique_with_tags_translated.json"
-      //     ))
-      //     .unwrap()
-      //     .items,
-      //   );
-      //   _neshan_all.items.extend(
-      //     serde_json::from_str::<Model>(include_str!(
-      //       "neshan_restaurant_results_unique_with_tags_translated.json"
-      //     ))
-      //     .unwrap()
-      //     .items,
-      //   );
-      //   _neshan_all
-      // };
-      // let filtered =
-      //   dataset.items.into_iter().filter(|f| new_msg.names.contains(&f.title)).collect::<Vec<_>>();
-      // places.set(filtered.clone());
-      // // t.set(format!("{:#?}", filtered.clone()));
-      // // console_log(&res);
-      // // answer_text.set(res);
-      // answer_text.set(format!("{new_msg:#?}"));
-
       places.set(new_msg);
     });
   };
-
   console_log(&"About to rendering view");
   view! {
     <div>
       <style>
-        "
-                 #map{
-                        height: 500px;
-                        width: 500px;
-                    }"
+        "#map{
+              height: 500px;
+              width: 500px;
+        }"
       </style>
       <div id="map"></div>
 
@@ -460,48 +369,32 @@ pub fn App() -> impl IntoView {
     </div>
   }
 }
-//       <script>
-//         {format!(
-//           r#"
-//         const neshanMap = new nmp_mapboxgl.Map({{
-//             mapType: nmp_mapboxgl.Map.mapTypes.neshanVector,
-//             container: "map",
-//             zoom: 14,
-//             pitch: 0,
-//             center: [51.391173, 35.700954],
-//             minZoom: 2,
-//             maxZoom: 21,
-//             trackResize: true,
-//             mapKey: "{neshan_api}",
-//             poi: false,
-//             traffic: false,
-//             mapTypeControllerOptions: {{
-//                 show: true,
-//                 position: 'bottom-left'
-//     }}
-//     }});
 
-//         // var marker = new nmp_mapboxgl.Marker()
-//         //     .setLngLat([51.47025848372447, 35.67586817813384])
-//         //     .addTo(neshanMap);
-//         // var marker = new nmp_mapboxgl.Marker()
-//         //     .setLngLat([51.44158950000002, 35.709454500000014])
-//         //     .addTo(neshanMap);
-//         // var marker = new nmp_mapboxgl.Marker()
-//         //     .setLngLat([51.42911965029056, 35.690335917469135])
-//         //     .addTo(neshanMap);
-//           // window.addNewMarker = function(lng, lat) {{
-//           //   var marker = new nmp_mapboxgl.Marker().setLngLat([lng, lat]).addTo(neshanMap);
-//           // }};
+#[component]
+fn PlacesList(#[prop(into)] places: Signal<Vec<Place>>) -> impl IntoView {
+  view! {
+    <div class="wrapper">
+      <ol class="c-stepper">
+        {move || {
+          places
+            .get()
+            .into_iter()
+            .map(|place| {
+              view! {
+                <li class="c-stepper__item">
 
-// "#,
-//         )}
-//       </script>
-// <p dir="auto">{move || t.get()}</p>
-// move |ev| {
-//           console_log(&format!("SALAM"));
-//           state.result().set(format!("{:#?}", select_places(&state.read(), places.clone())));
-//         }
+                  <div class="c-stepper__content">
+                    <PlaceCard place />
+                  </div>
+                </li>
+              }
+            })
+            .collect_view()
+        }}
+      </ol>
+    </div>
+  }
+}
 
 #[component]
 fn PlaceCard(place: Place) -> impl IntoView {
@@ -535,63 +428,3 @@ fn PlaceCard(place: Place) -> impl IntoView {
     </div>
   }
 }
-
-#[component]
-fn PlacesList(#[prop(into)] places: Signal<Vec<Place>>) -> impl IntoView {
-  view! {
-    <div class="wrapper">
-      <ol class="c-stepper">
-        {move || {
-          places
-            .get()
-            .into_iter()
-            .map(|place| {
-              view! {
-                <li class="c-stepper__item">
-
-                  <div class="c-stepper__content">
-                    <PlaceCard place />
-                  </div>
-                </li>
-              }
-            })
-            .collect_view()
-        }}
-      </ol>
-    </div>
-  }
-}
-
-// <ol class="stepper">
-//   {move || {
-//     places
-//       .get()
-//       .into_iter()
-//       .map(|place| {
-//         view! {
-//           <li>
-//             <div class="step">
-//               <PlaceCard place />
-//             </div>
-//           </li>
-//         }
-//       })
-//       .collect_view()
-//   }}  <li>Step B</li> <li class="active">End</li>
-// </ol>
-
-// <div class="places-list">
-//   {move || {
-//     places
-//       .get()
-//       .into_iter()
-//       .map(|place| {
-//         view! {
-//           <div class="step">
-//             <PlaceCard place />
-//           </div>
-//         }
-//       })
-//       .collect_view()
-//   }}
-// </div>
