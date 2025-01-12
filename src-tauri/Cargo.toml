@@ -15,11 +15,11 @@ name = "tauri_gardesh_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0.2", features = [] }
+tauri-build = { version = "2.0.4", features = [] }
 
 [dependencies]
-tauri = { version = "2.0.6", features = [] }
-tauri-plugin-shell = "2.0.2"
+tauri = { version = "2.2.0", features = [] }
+tauri-plugin-shell = "2.2.0"
 iter_tools = { version = "0.24.0", features = ["full"] }
 dotenv = "0.15.0"
 reqwest = { version = "0.12.9", features = ["json"] }
@@ -28,6 +28,9 @@ serde_json = "1.0.132"
 tokio = { version = "1.41.0", features = ["full"] }
 kalosm = { version = "0.3.2", features = ["language", "vision", "surrealdb"] }
 vec-embed-store = { path = "vec-embed-store" }
-tauri-plugin-log = "2"
+tauri-plugin-log = "2.2.0"
 rstar = "0.12.2"
 rand = { version = "0.8.5", default-features = false, features = ["std_rng"] }
+genai = "0.1.17"
+enum_all_variants = "0.2.0"
+strum = "0.26.3"

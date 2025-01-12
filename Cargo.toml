@@ -24,9 +24,10 @@ ndarray = "0.16.1"
 glob = "0.3.1"
 lopdf = "0.34.0"
 reqwest = { version = "0.12.9", features = ["json"] }
-enum_all_variants = "0.2.0"
+# enum_all_variants = "0.2.0"
 # rand = { version = "0.8.5", default-features = false, features = ["std_rng"] }
 dotenvy_macro = "0.15.7"
+strum = { version = "0.26.3", features = ["derive", "strum_macros"] }
 
 [workspace]
 members = ["src-tauri"]
