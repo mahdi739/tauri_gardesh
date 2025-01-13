@@ -32,7 +32,7 @@ body {
   background-color: lightgrey;
 }
 
-.c-stepper__item:not(:last-child):after {
+/* .c-stepper__item:not(:last-child):after {
   content: "";
   position: absolute;
   left: 0;
@@ -42,7 +42,7 @@ body {
   transform: translateX(calc(var(--circle-size) / 2));
   width: 2px;
   background-color: #e0e0e0;
-}
+} */
 
 .c-stepper__title {
   font-weight: bold;
@@ -63,6 +63,7 @@ body {
 /*** Non-demo CSS ***/
 .wrapper {
   /* max-width: 1000px; */
+  direction: rtl;
   margin: 2rem auto 0;
 }
 
