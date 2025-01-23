@@ -61,16 +61,16 @@ body {
 } */
 
 /*** Non-demo CSS ***/
-.wrapper {
+/* .wrapper {
   /* max-width: 1000px; */
-  direction: rtl;
-  margin: 2rem auto 0;
-}
+  /* direction: rtl; */
+  /* margin: 2rem auto 0; */
+/* } */
 
-body {
+/* body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   padding: 1rem;
-}
+} */
 
 *,
 *:before,
@@ -358,12 +358,12 @@ textarea {
   -webkit-box-orient: vertical;
   font-weight: 700;
 }
-
+/* 
 .hidden {
   visibility: hidden;
 
-}
-
+} */
+/* 
 #prompt {
   width: 100%;
   height: 200px;
@@ -372,4 +372,4 @@ textarea {
   direction: rtl;
   display: flex;
   flex-direction: column;
-}
+} */

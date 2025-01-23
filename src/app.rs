@@ -6,16 +6,21 @@ use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatResponseFormat, Jso
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
 use genai::{Client, ClientConfig, ModelIden, ServiceTarget};
 
+use guards::{Mapped, MappedMutArc, Plain};
 use iter_tools::Itertools;
+use leptos::html::div;
 use leptos::leptos_dom::logging::console_log;
 use leptos::tachys::html::property::IntoProperty;
-use reactive_stores::{OptionStoreExt as _, Store, StoreFieldIterator};
+use reactive_stores::{
+  AtKeyed, Field, KeyedSubfield, OptionStoreExt as _, Store, StoreField, StoreFieldIterator,
+  Subfield,
+};
 use serde_json::{json, to_value};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::iter::repeat;
-use std::ops::Index;
+use std::ops::{Deref, Index};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::{
@@ -33,35 +38,17 @@ use web_sys::js_sys::{Array, JsString, Object, Reflect};
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 use leptos::{either::Either, prelude::*, task::spawn_local};
 use serde::{Deserialize, Serialize};
-// use std::fmt::Display;
-// use strum::{Display, EnumString};
-// use strum::{VariantArray, VariantNames};
 use wasm_bindgen::prelude::*;
 use web_sys::{window, Window};
 use web_sys::{InputEvent, MouseEvent, SubmitEvent};
 
-// #[wasm_bindgen]
-// extern "C" {
-//   #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
-//   async fn invoke(cmd: &str, args: JsValue) -> JsValue;
-// }
-
-// #[derive(Serialize, Deserialize)]
-// struct AnswerArgs {
-//   search_text: String,
-// }
-// const EPSILON: f64 = 1e-10;
-// #[derive(Serialize, Deserialize)]
-// struct GreetArgs {
-//   name: String,
-// }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct PlaceInfo {
   place_type: PlaceType,
   tags: Vec<String>,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct PromptAnalyse {
+struct PromptAnalyses {
   // entry_point: Option<Location>,
   place_infos: Vec<PlaceInfo>,
   total_count: Option<u32>,
@@ -75,9 +62,7 @@ struct PlaceScoring {
 
 impl PartialEq for PlaceScoring {
   fn eq(&self, other: &Self) -> bool {
-    let res = self.place == other.place && self.score == other.score;
-    // console_log(&format!("{res}"));
-    res
+    self.place == other.place && self.score == other.score
   }
 }
 #[derive(
@@ -111,35 +96,7 @@ struct Location {
   x: f64,
   y: f64,
 }
-// impl PartialEq for Location {
-//   fn eq(&self, other: &Self) -> bool {
-//     // Define a small epsilon for floating-point comparison
-//     const EPSILON: f64 = 1e-9; // Adjust this value based on your precision needs
 
-//     // Check if the difference between coordinates is less than EPSILON
-//     (self.x - other.x).abs() < EPSILON && (self.y - other.y).abs() < EPSILON
-//   }
-// }
-// impl Eq for Location {}
-// impl Hash for Location {
-//   fn hash<H: Hasher>(&self, state: &mut H) {
-//     // Scaling factor for converting float to integer for hashing
-//     const SCALE_FACTOR: f64 = 1e9; // This should match or be related to EPSILON
-
-//     // Convert to scaled integers to ensure hash stability for "equal" floats
-//     let x_int = (self.x * SCALE_FACTOR).round() as i64;
-//     let y_int = (self.y * SCALE_FACTOR).round() as i64;
-
-//     // Hash the integers
-//     x_int.hash(state);
-//     y_int.hash(state);
-//   }
-// }
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct ResponseModel {
-  names: Vec<String>,
-}
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Place {
   title: String,
@@ -164,79 +121,101 @@ impl Hash for Place {
 
 impl PartialEq for Place {
   fn eq(&self, other: &Self) -> bool {
-    let res = self.title == other.title && self.r#type == other.r#type;
-    // console_log(&format!("{} vs {}", self.title, other.title));
-    res
+    self.title == other.title && self.r#type == other.r#type
   }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct Model {
+struct NeshanDataModel {
   tag_pool: Vec<String>,
   items: Vec<Place>,
 }
 
-#[derive(Debug, Store, PartialEq, Eq, Hash)]
-pub struct SelectPlace {
-  checked: bool,
-  place_type: PlaceType,
-}
-#[derive(Debug, Store, PartialEq, Eq, Hash)]
+#[derive(Default, Store)]
 pub struct State {
-  pub num_places: String,
-  pub budget: String,
-  pub time: String,
-  #[store(key:PlaceType=|n|n.place_type)]
-  pub select_places: Vec<SelectPlace>,
-  pub result: String,
+  prompt_text: String, // should be in session
+  #[store(key: DateTime<Local> = |session| session.date_created)]
+  sessions: Vec<Session>,
+  #[store(skip)]
+  selected_session: Option<Field<Session>>,
 }
-impl Default for State {
-  fn default() -> Self {
-    Self {
-      num_places: "5".to_string(),
-      budget: "1000000".to_string(),
-      time: "4".to_string(),
-      select_places: PlaceType::VARIANTS
-        .iter()
-        .map(|f| SelectPlace { checked: true, place_type: f.to_owned() })
-        .collect_vec(),
-      result: "".to_string(),
-    }
+pub trait StateExt {
+  fn selected_session(&self) -> Option<Field<Session>>;
+}
+impl StateExt for Store<State> {
+  fn selected_session(&self) -> Option<Field<Session>> {
+    self.with(|f| f.selected_session)
+  }
+}
+impl Debug for State {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("State")
+      .field("prompt_text", &self.prompt_text)
+      .field("sessions", &self.sessions)
+      .field("selected_session", &"Not Implemented")
+      .finish()
   }
 }
 
-fn shuffle_vec<T: Debug>(vec: &mut Vec<T>) {
-  let len = vec.len();
-  for i in 0..len {
-    let j = (web_sys::js_sys::Math::random() * (len as f64)) as usize;
-    vec.swap(i, j);
-  }
-  // console_log(&format!("{vec:#?}"));
+// impl Hash for State {
+//   fn hash<H: Hasher>(&self, state: &mut H) {
+//     self.prompt_text.hash(state);
+//     self.sessions.hash(state);
+//   }
+// }
+
+// impl Eq for State {}
+
+// impl PartialEq for State {
+//   fn eq(&self, other: &Self) -> bool {
+//     self.prompt_text == other.prompt_text && self.sessions == other.sessions
+//   }
+// }
+
+#[derive(Store, Clone)]
+pub struct Session {
+  date_created: DateTime<Local>,
+  title: String,
+  suggestions: Suggestion,
+  #[store(skip)]
+  selected_suggestion: Option<Field<Suggestion>>,
 }
 
-fn select_places(state: &State, places: Vec<Place>) -> Vec<String> {
-  // let mut rng = rand::rngs::ThreadRng::default();
-  // web_sys::js_sys::Math::random()
-  let selected_types: HashSet<_> = state.select_places.iter().map(|sp| &sp.place_type).collect();
-  let mut filtered_places: Vec<_> =
-    places.into_iter().filter(|place| selected_types.contains(&place.r#type)).collect();
-
-  shuffle_vec(&mut filtered_places);
-
-  let mut selected_places = Vec::new();
-  let mut place_types = HashSet::new();
-
-  for place in filtered_places {
-    if selected_places.len().to_string() == state.num_places {
-      break;
-    }
-    if !place_types.contains(&place.r#type) {
-      place_types.insert(place.r#type.clone());
-      selected_places.push(place);
-    }
+impl Debug for Session {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Session")
+      .field("date_created", &self.date_created)
+      .field("title", &self.title)
+      .field("suggestions", &self.suggestions)
+      .field("selected_session", &"Not Implemented")
+      .finish()
   }
-  selected_places.iter().map(|f| f.title.clone()).collect_vec()
 }
+pub trait SessionExt {
+  fn selected_suggestion(&self) -> Option<Field<Suggestion>>;
+}
+impl SessionExt for Field<Session> {
+  fn selected_suggestion(&self) -> Option<Field<Suggestion>> {
+    self.with(|f| f.selected_suggestion)
+  }
+}
+
+impl Hash for Session {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.date_created.hash(state);
+  }
+}
+
+impl PartialEq for Session {
+  fn eq(&self, other: &Self) -> bool {
+    self.date_created == other.date_created
+  }
+}
+#[derive(Debug, Store, PartialEq, Eq, Hash, Clone)]
+pub struct Suggestion {
+  places: Vec<Vec<Place>>,
+}
+
 #[wasm_bindgen]
 extern "C" {
   #[wasm_bindgen(js_namespace = nmp_mapboxgl)]
@@ -265,32 +244,29 @@ extern "C" {
   fn getLngLat(this: &Marker) -> LngLat;
 
 }
-#[component]
-pub fn App() -> impl IntoView {
-  console_log(&"App is Called");
-  let options = Object::new();
-  Reflect::set(&options, &JsValue::from_str("mapType"), &JsValue::from_str("neshanVector"))
-    .unwrap();
-  Reflect::set(&options, &JsValue::from_str("container"), &JsValue::from_str("map")).unwrap();
-  Reflect::set(&options, &JsValue::from_str("zoom"), &JsValue::from_f64(10.0)).unwrap();
-  Reflect::set(&options, &JsValue::from_str("pitch"), &JsValue::from_f64(0.0)).unwrap();
+
+fn config_map(options: &Object) {
+  Reflect::set(options, &JsValue::from_str("mapType"), &JsValue::from_str("neshanVector")).unwrap();
+  Reflect::set(options, &JsValue::from_str("container"), &JsValue::from_str("map")).unwrap();
+  Reflect::set(options, &JsValue::from_str("zoom"), &JsValue::from_f64(10.0)).unwrap();
+  Reflect::set(options, &JsValue::from_str("pitch"), &JsValue::from_f64(0.0)).unwrap();
   Reflect::set(
-    &options,
+    options,
     &JsValue::from_str("center"),
     &JsValue::from(Array::of2(&JsValue::from_f64(51.391173), &JsValue::from_f64(35.700954))),
   )
   .unwrap();
-  Reflect::set(&options, &JsValue::from_str("minZoom"), &JsValue::from_f64(2.0)).unwrap();
-  Reflect::set(&options, &JsValue::from_str("maxZoom"), &JsValue::from_f64(21.0)).unwrap();
-  Reflect::set(&options, &JsValue::from_str("trackResize"), &JsValue::from_bool(true)).unwrap();
+  Reflect::set(options, &JsValue::from_str("minZoom"), &JsValue::from_f64(2.0)).unwrap();
+  Reflect::set(options, &JsValue::from_str("maxZoom"), &JsValue::from_f64(21.0)).unwrap();
+  Reflect::set(options, &JsValue::from_str("trackResize"), &JsValue::from_bool(true)).unwrap();
   Reflect::set(
-    &options,
+    options,
     &JsValue::from_str("mapKey"),
     &JsValue::from_str(dotenv!("NESHAN_API_KEY")),
   )
   .unwrap();
-  Reflect::set(&options, &JsValue::from_str("poi"), &JsValue::from_bool(false)).unwrap();
-  Reflect::set(&options, &JsValue::from_str("traffic"), &JsValue::from_bool(false)).unwrap();
+  Reflect::set(options, &JsValue::from_str("poi"), &JsValue::from_bool(false)).unwrap();
+  Reflect::set(options, &JsValue::from_str("traffic"), &JsValue::from_bool(false)).unwrap();
   let map_controller_options = Object::new();
   Reflect::set(&map_controller_options, &JsValue::from_str("show"), &JsValue::from_bool(true))
     .unwrap();
@@ -301,13 +277,17 @@ pub fn App() -> impl IntoView {
   )
   .unwrap();
   Reflect::set(
-    &options,
+    options,
     &JsValue::from_str("mapTypeControllerOptions"),
     &JsValue::from(map_controller_options),
   )
   .unwrap();
-  console_log(&"7");
-  console_log(&"Map was created");
+}
+
+#[component]
+pub fn App() -> impl IntoView {
+  let map_options = Object::new();
+  // config_map(&map_options);
   let places = RwSignal::new(Vec::<Place>::new());
   let markers = StoredValue::new_local(Vec::<Marker>::new());
   let map_ref: RwSignal<Option<Map>, LocalStorage> = RwSignal::new_local(None);
@@ -332,60 +312,225 @@ pub fn App() -> impl IntoView {
     }
     places.get()
   });
+
   request_animation_frame(move || {
-    map_ref.set(Some(Map::newMap(&JsValue::from(options))));
+    map_ref.set(Some(Map::newMap(&JsValue::from(map_options))));
   });
 
   let state = Store::new(State::default());
-  let prompt_text = RwSignal::new("".to_string());
-  let answer_text = RwSignal::new("".to_string());
+  // state.selected_session().;
   let answer = move |ev: MouseEvent| {
-    ev.prevent_default();
-
-    // console_log("Hi From outside of the spaawn");
     spawn_local(async move {
-      // console_log("Hi");
-      // let args = serde_wasm_bindgen::to_value(&GreetArgs { name: prompt_text.get() }).unwrap();
-      // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-      let new_msg = do_the_job(prompt_text.get()).await;
-      console_log(&format!("{new_msg:#?}"));
-      places.set(new_msg);
+      let answer = ask_ai(state.prompt_text().get()).await;
+      state.selected_session().map(|ss| ss.write().suggestions = answer);
     });
   };
-  console_log(&"About to rendering view");
-  view! {
-    <div>
-      <div id="map" style="height:500px;width:100%;"></div>
 
-      <textarea name="prompt" id="prompt" bind:value=prompt_text />
-      <button on:click=answer>"Generate Suggestion"</button>
-      {answer_text}
-      <PlacesList places />
+  let r = format!("{:#?}", state.path().into_iter().collect_vec());
+  // state.read().selected_session.unwrap().date_created()
+  // state.sessions().at_unkeyed(0).reader()
+  // console_log(&"About to rendering view");
+  // let r = AtKeyed::new(state.sessions(), state.sessions()..get()[0].date_created);
+
+  // state.sessions().at_unkeyed(0).date_created().get()
+  Effect::new(
+    move |old_sessions: Option<
+      KeyedSubfield<Store<State>, State, DateTime<Local>, Vec<Session>>,
+    >| {
+      if let Some(old_sessions) = old_sessions {
+        // console_log(&format!(
+        //   "{:#?}",
+        //   state.sessions().at_unkeyed(0).path().into_iter().collect_vec()
+        // ));
+        if state.with_untracked(|f| {
+          f.selected_session
+            .get_untracked()
+            .map(|ss| f.sessions.contains(&ss).not())
+            .unwrap_or(false)
+        }) {
+          state.write().selected_session = None;
+        }
+      }
+      state.sessions().track_field();
+      state.sessions()
+    },
+  );
+  Effect::new(move |old_suggestions| {
+    if let Some(old_suggestions) = old_suggestions {
+      if state.selected_session().with_untracked(|q| {
+        q.map(|f| f.selected_suggestion.map(|ss| f.suggestions.contains(&*ss.read()).not()))
+          .flatten()
+          .unwrap_or(false)
+      }) {
+        state.write().selected_session = None;
+      }
+    }
+    state.selected_session().track();
+    state.selected_session().map(|f| f.suggestions())
+  });
+  let is_sidebar_visible = RwSignal::new(true);
+  let toggle_sidebar = move |_| is_sidebar_visible.update(|f| *f = !*f);
+  let add_session = move |_| {
+    state.sessions().write().push(Session {
+      selected_suggestion: None,
+      date_created: Local::now(),
+      suggestions: Vec::new(),
+      title: "جلسه جدید".to_string(),
+    });
+  };
+
+  view! {
+    <div style="display: flex;height:100%">
+      <aside
+        style:width=move || is_sidebar_visible.with(|f| f.then_some("300px").unwrap_or("0px"))
+        style="display:flex; flex-direction:column;flex:0 0 auto;align-items: stretch;height:100%;max-width:400px;
+        background:#AAAAAA;transition: width 100ms;"
+      >
+        <ul style="margin-top:200px;list-style-type: none;user-select: none;cursor: default;">
+          <style>
+            "
+            li.selected {
+            background:#1e211d;
+            color:#dee0f5;
+            }
+            li:hover {
+            background:#EEEEEE;
+            }"
+          </style>
+          <ForEnumerate each=move || state.sessions() key=|item| item.date_created().get() let(index, session)>
+            <li
+              class:selected=move || state.selected_session().is_some_and(|f| *f.read() == *session.read())
+              on:click=move |event: MouseEvent| {
+                event.stop_propagation();
+                state.write().selected_session = Some(session.into());
+              }
+              on:mousedown=move |event: MouseEvent| {
+                event.stop_propagation();
+                if event.which() == 3 {
+                  session.title().set("HEEEEEELLO!".to_string());
+                }
+              }
+              style="padding: 10px 5px;direction: rtl;"
+            >
+              {move || format!("{}\n{}", session.title().get(), session.date_created().get().to_string())}
+            </li>
+          </ForEnumerate>
+        </ul>
+      </aside>
+      <button on:click=toggle_sidebar style="position: absolute;top: 0;left: 0;width: 40px;height: 40px;margin: 10px;">
+        =
+      </button>
+      <button on:click=add_session style="position: absolute;bottom: 0;left: 0;width: 40px;height: 40px;margin: 10px;">
+        +
+      </button>
+      <main style="height:100%;flex: 1 1 auto;width:100%;min-width:0;">
+        {move || match state.selected_session() {
+          Some(selected_session) => {
+            Either::Right(
+              view! {
+                <div style="display:flex;flex-direction: column;height:100%;">
+                  <div id="map" style="height:500px;width:100%;flex:0 0 auto"></div>
+
+                  <SuggestionTabContent
+                    suggestion=selected_session.selected_suggestion()
+                    {..}
+                    style="flex: 1 1 auto;background-color:grey;overflow-y:auto;"
+                  />
+                  <SuggestionTabBar
+                    session={selected_session}
+                    {..}
+                    style="display:flex; direction:rtl;flex: 0 1 auto;overflow-x: auto;"
+                  />
+                  <div
+                    style:margin-left=move || is_sidebar_visible.with(|f| f.then_some("0px").unwrap_or("60px"))
+                    style="display:flex;align-items:end;flex:0 0 auto;transition: margin-left 100ms;"
+                  >
+                    <textarea
+                      style="field-sizing: content;border:2;margin-right:10px;padding:10px;
+                      border-color:#DDDDDD;background:#EEEEEE;
+                      border-radius:20px;flex: 1 1 auto;min-height:60px;max-height:300px;direction:rtl;font-size:20px"
+                      name="prompt"
+                      bind:value=state.prompt_text()
+                    />
+                    <button
+                      style="background:#dee0f5; color:#1e211d; border-radius:10px; border: 0;
+                      width:60px;height:60px;font-size:24px;
+                      box-shadow: 0 0 5px rgba(0, 0, 0, 0.32)"
+                      on:click=answer
+                    >
+                      ">"
+                    </button>
+                  </div>
+                </div>
+              },
+            )
+          }
+          None => Either::Left(().into_view()),
+        }}
+      </main>
     </div>
   }
 }
 
 #[component]
-fn PlacesList(#[prop(into)] places: Signal<Vec<Place>>) -> impl IntoView {
+fn SuggestionTabBar(#[prop(into)] session: Field<Session>) -> impl IntoView {
   view! {
-    <div class="wrapper">
-      <ol class="c-st1per">
-        {move || {
-          places
-            .get()
-            .into_iter()
-            .map(|place| {
-              view! {
-                <li class="c-stepper__item">
-                  <div class="c-stepper__content">
-                    <PlaceCard place />
-                  </div>
-                </li>
-              }
-            })
-            .collect_view()
-        }}
-      </ol>
+    <div>
+      {move || {
+        session
+          .suggestions()
+          .iter_unkeyed()
+          .enumerate()
+          .map(|(index, suggestion)| {
+            view! {
+              <p
+                style="padding:10px; background-color: #rgb(235, 250, 148);"
+                on:click=move |_| session.write().selected_suggestion = Some(suggestion.into())
+              >
+
+                {move || format!("پیشتنهاد {}", index + 1)}
+              </p>
+            }
+          })
+          .collect_view()
+      }}
+    </div>
+  }
+}
+
+#[component]
+fn SuggestionTabContent(#[prop(into)] suggestion: Option<Field<Suggestion>>) -> impl IntoView {
+  view! {
+    <div>
+      {move || match suggestion {
+        Some(suggestion) => {
+          Either::Right(
+            view! {
+              <div style="direction: rtl;">
+                <ol class="c-stepper">
+                  {move || {
+                    suggestion
+                      .places()
+                      .get()
+                      .into_iter()
+                      .map(|place| {
+                        view! {
+                          <li class="c-stepper__item">
+                            <div class="c-stepper__content">
+                              <PlaceCard place />
+                            </div>
+                          </li>
+                        }
+                      })
+                      .collect_view()
+                  }}
+                </ol>
+              </div>
+            },
+          )
+        }
+        None => Either::Left(()),
+      }}
     </div>
   }
 }
@@ -423,7 +568,7 @@ fn PlaceCard(place: Place) -> impl IntoView {
   }
 }
 
-async fn do_the_job(name: String) -> Vec<Place> {
+async fn ask_ai(prompt: String) -> Suggestion {
   // use rand::{rngs::StdRng, Rng as _, SeedableRng};
   // let mut rng: StdRng = StdRng::from_entropy();
 
@@ -453,15 +598,15 @@ async fn do_the_job(name: String) -> Vec<Place> {
 
   // Lat: 35.60 - 35.80
   // Long: 51.20 - 51.50
-  let mut neshan_history = serde_json::from_str::<Model>(include_str!(
+  let mut neshan_history = serde_json::from_str::<NeshanDataModel>(include_str!(
     "taged_items/neshan_history_results_unique_with_tags.json"
   ))
   .unwrap();
-  let mut neshan_museum = serde_json::from_str::<Model>(include_str!(
+  let mut neshan_museum = serde_json::from_str::<NeshanDataModel>(include_str!(
     "taged_items/neshan_museum_results_unique_with_tags.json"
   ))
   .unwrap();
-  let mut neshan_restaurant = serde_json::from_str::<Model>(include_str!(
+  let mut neshan_restaurant = serde_json::from_str::<NeshanDataModel>(include_str!(
     "taged_items/neshan_restaurant_results_unique_with_tags.json"
   ))
   .unwrap();
@@ -536,7 +681,7 @@ async fn do_the_job(name: String) -> Vec<Place> {
     .build();
   // -- Build the chat request
   let chat_req =
-    ChatRequest::new(vec![ChatMessage::system(system_prompt), ChatMessage::user(name)]);
+    ChatRequest::new(vec![ChatMessage::system(system_prompt), ChatMessage::user(prompt)]);
   println!("Question:\n{:#?}", chat_req);
 
   // -- Build the chat request options (used per execution chat)
@@ -554,7 +699,7 @@ async fn do_the_job(name: String) -> Vec<Place> {
   // use vec_embed_store::{EmbeddingEngineOptions, EmbeddingsDb, SimilaritySearch, TextChunk};
 
   let prompt_analyse =
-    serde_json::from_str::<PromptAnalyse>(chat_res.content_text_as_str().unwrap()).unwrap();
+    serde_json::from_str::<PromptAnalyses>(chat_res.content_text_as_str().unwrap()).unwrap();
   println!("🟣🟣🟣\n{prompt_analyse:#?}\n🟣🟣🟣");
   // let neshan_history = serde_json::from_str::<Model>(include_str!(
   //   "taged_items/neshan_history_results_unique_with_tags.json"
@@ -592,69 +737,75 @@ async fn do_the_job(name: String) -> Vec<Place> {
     tmp
   };
 
-  prompt_analyse
-    .place_infos
-    .iter()
-    .zip(repeat(&all_places))
-    .map(|(info, all_places)| {
-      all_places
-        .iter()
-        .filter(|place| {
-          place.r#type == info.place_type && place.tags.iter().any(|tag| info.tags.contains(tag))
-        })
-        .map(|place| PlaceScoring {
-          score: place.tags.iter().filter(|tag| info.tags.contains(tag)).count(),
-          place: place.clone(),
-        })
-        .collect_vec()
-    })
-    // .collect::<Vec<Vec<PlaceScoring>>>()
-    // .into_iter()
-    // .unique()
-    // .inspect(|f| console_log(&format!("{f:#?}")))
-    // .collect::<Vec<Vec<PlaceScoring>>>()
-    // .into_iter()
-    .multi_cartesian_product()
-    .map(|place_scoring_list| place_scoring_list.into_iter().unique().collect_vec())
-    .unique()
-    .sorted_by(|a, b| {
-      if a.len() != b.len() {
-        return b.len().cmp(&a.len());
-      }
-      let max_distance = 20.0; // km
-      let dist_a = a
-        .iter()
-        .circular_tuple_windows()
-        .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
-        .sum::<f64>();
-      let dist_b = b
-        .iter()
-        .circular_tuple_windows()
-        .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
-        .sum::<f64>();
+  Suggestion {
+    places: prompt_analyse
+      .place_infos
+      .iter()
+      .zip(repeat(&all_places))
+      .map(|(info, all_places)| {
+        all_places
+          .into_iter()
+          .filter(|place| {
+            place.r#type == info.place_type && place.tags.iter().any(|tag| info.tags.contains(tag))
+          })
+          // .cloned()
+          // .map(|place| PlaceScoring {
+          //   score: place.tags.iter().filter(|tag| info.tags.contains(tag)).count(),
+          //   place: place.clone(),
+          // })
+          .collect_vec()
+      })
+      .collect_vec(),
+  }
+  // // .collect::<Vec<Vec<PlaceScoring>>>()
+  // // .into_iter()
+  // // .unique()
+  // // .inspect(|f| console_log(&format!("{f:#?}")))
+  // // .collect::<Vec<Vec<PlaceScoring>>>()
+  // // .into_iter()
+  // .multi_cartesian_product()
+  // .map(|place_scoring_list| place_scoring_list.into_iter().unique().collect_vec())
+  // .unique()
+  // .sorted_by(|a, b| {
+  //   if a.len() != b.len() {
+  //     return b.len().cmp(&a.len());
+  //   }
+  //   let max_distance = 20.0; // km
+  //   let dist_a = a
+  //     .iter()
+  //     .circular_tuple_windows()
+  //     .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
+  //     .sum::<f64>();
+  //   let dist_b = b
+  //     .iter()
+  //     .circular_tuple_windows()
+  //     .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
+  //     .sum::<f64>();
 
-      // Normalize distances to 0-1 scale
-      let norm_dist_a = dist_a / max_distance;
-      let norm_dist_b = dist_b / max_distance;
+  //   // Normalize distances to 0-1 scale
+  //   let norm_dist_a = dist_a / max_distance;
+  //   let norm_dist_b = dist_b / max_distance;
 
-      // Normalize scores to 0-1 scale (assuming higher score is better)
-      let score_a = a.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / a.len() as f64;
-      let score_b = b.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / b.len() as f64;
+  //   // Normalize scores to 0-1 scale (assuming higher score is better)
+  //   let score_a = a.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / a.len() as f64;
+  //   let score_b = b.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / b.len() as f64;
 
-      // Combine normalized distance and score. Here we use subtraction because lower distance and higher score are better.
-      // If you want to make distance and score equally important, you might adjust the weights.
-      let combined_a = (0.1 * norm_dist_a) - (0.9 * score_a);
-      let combined_b = (0.1 * norm_dist_b) - (0.9 * score_b);
-      combined_a.partial_cmp(&combined_b).unwrap_or(Equal)
-    })
-    .inspect(|f| console_log(&format!("{f:#?}")))
-    .collect_vec()
-    .first()
-    // .next()
-    .unwrap()
-    .into_iter()
-    .map(|place_scoring| place_scoring.place.clone())
-    .collect_vec()
+  //   // Combine normalized distance and score. Here we use subtraction because lower distance and higher score are better.
+  //   // If you want to make distance and score equally important, you might adjust the weights.
+  //   let combined_a = (0.1 * norm_dist_a) - (0.9 * score_a);
+  //   let combined_b = (0.1 * norm_dist_b) - (0.9 * score_b);
+  //   combined_a.partial_cmp(&combined_b).unwrap_or(Equal)
+  // })
+  // // .inspect(|f| console_log(&format!("{f:#?}")))
+  // // .collect_vec()
+  // // .first()
+  // // .next()
+  // // .unwrap()
+  // // .into_iter()
+  // .map(|place_scoring_list| Suggestion {
+  //   places: place_scoring_list.into_iter().map(|place_scoring| place_scoring.place).collect_vec(),
+  // })
+  // .collect_vec()
 
   // let mut res = prompt_analyse
   //   .place_infos
