@@ -176,9 +176,9 @@ impl Debug for State {
 pub struct Session {
   date_created: DateTime<Local>,
   title: String,
-  suggestions: Suggestion,
-  #[store(skip)]
-  selected_suggestion: Option<Field<Suggestion>>,
+  suggestions: Vec<Suggestion>,
+  // #[store(skip)]
+  // selected_suggestion: Option<Field<Suggestion>>,
 }
 
 impl Debug for Session {
@@ -187,18 +187,18 @@ impl Debug for Session {
       .field("date_created", &self.date_created)
       .field("title", &self.title)
       .field("suggestions", &self.suggestions)
-      .field("selected_session", &"Not Implemented")
+      // .field("selected_session", &"Not Implemented")
       .finish()
   }
 }
-pub trait SessionExt {
-  fn selected_suggestion(&self) -> Option<Field<Suggestion>>;
-}
-impl SessionExt for Field<Session> {
-  fn selected_suggestion(&self) -> Option<Field<Suggestion>> {
-    self.with(|f| f.selected_suggestion)
-  }
-}
+// pub trait SessionExt {
+//   fn selected_suggestion(&self) -> Option<Field<Suggestion>>;
+// }
+// impl SessionExt for Field<Session> {
+//   fn selected_suggestion(&self) -> Option<Field<Suggestion>> {
+//     self.with(|f| f.selected_suggestion)
+//   }
+// }
 
 impl Hash for Session {
   fn hash<H: Hasher>(&self, state: &mut H) {
@@ -211,9 +211,12 @@ impl PartialEq for Session {
     self.date_created == other.date_created
   }
 }
+
 #[derive(Debug, Store, PartialEq, Eq, Hash, Clone)]
 pub struct Suggestion {
-  places: Vec<Vec<Place>>,
+  #[store(key:Place = |place|place.clone())]
+  places: Vec<Place>,
+  selected_place: Place,
 }
 
 #[wasm_bindgen]
@@ -322,6 +325,7 @@ pub fn App() -> impl IntoView {
   let answer = move |ev: MouseEvent| {
     spawn_local(async move {
       let answer = ask_ai(state.prompt_text().get()).await;
+      // console_log(&format!("{:#?}", answer.clone()));
       state.selected_session().map(|ss| ss.write().suggestions = answer);
     });
   };
@@ -355,24 +359,24 @@ pub fn App() -> impl IntoView {
       state.sessions()
     },
   );
-  Effect::new(move |old_suggestions| {
-    if let Some(old_suggestions) = old_suggestions {
-      if state.selected_session().with_untracked(|q| {
-        q.map(|f| f.selected_suggestion.map(|ss| f.suggestions.contains(&*ss.read()).not()))
-          .flatten()
-          .unwrap_or(false)
-      }) {
-        state.write().selected_session = None;
-      }
-    }
-    state.selected_session().track();
-    state.selected_session().map(|f| f.suggestions())
-  });
+  // Effect::new(move |old_suggestions| {
+  //   if let Some(old_suggestions) = old_suggestions {
+  //     if state.selected_session().with_untracked(|q| {
+  //       q.map(|f| f.selected_suggestion.map(|ss| f.suggestions.contains(&*ss.read()).not()))
+  //         .flatten()
+  //         .unwrap_or(false)
+  //     }) {
+  //       state.write().selected_session = None;
+  //     }
+  //   }
+  //   state.selected_session().track();
+  //   state.selected_session().map(|f| f.suggestions())
+  // });
   let is_sidebar_visible = RwSignal::new(true);
   let toggle_sidebar = move |_| is_sidebar_visible.update(|f| *f = !*f);
   let add_session = move |_| {
     state.sessions().write().push(Session {
-      selected_suggestion: None,
+      // selected_suggestion: None,
       date_created: Local::now(),
       suggestions: Vec::new(),
       title: "جلسه جدید".to_string(),
@@ -380,26 +384,13 @@ pub fn App() -> impl IntoView {
   };
 
   view! {
-    <div style="display: flex;height:100%">
-      <aside
-        style:width=move || is_sidebar_visible.with(|f| f.then_some("300px").unwrap_or("0px"))
-        style="display:flex; flex-direction:column;flex:0 0 auto;align-items: stretch;height:100%;max-width:400px;
-        background:#AAAAAA;transition: width 100ms;"
-      >
-        <ul style="margin-top:200px;list-style-type: none;user-select: none;cursor: default;">
-          <style>
-            "
-            li.selected {
-            background:#1e211d;
-            color:#dee0f5;
-            }
-            li:hover {
-            background:#EEEEEE;
-            }"
-          </style>
+    <div id="app">
+      <aside class="sidebar" class:open=is_sidebar_visible>
+        <ul id="sessions">
           <ForEnumerate each=move || state.sessions() key=|item| item.date_created().get() let(index, session)>
             <li
               class:selected=move || state.selected_session().is_some_and(|f| *f.read() == *session.read())
+              class="item"
               on:click=move |event: MouseEvent| {
                 event.stop_propagation();
                 state.write().selected_session = Some(session.into());
@@ -410,54 +401,40 @@ pub fn App() -> impl IntoView {
                   session.title().set("HEEEEEELLO!".to_string());
                 }
               }
-              style="padding: 10px 5px;direction: rtl;"
             >
               {move || format!("{}\n{}", session.title().get(), session.date_created().get().to_string())}
             </li>
           </ForEnumerate>
         </ul>
       </aside>
-      <button on:click=toggle_sidebar style="position: absolute;top: 0;left: 0;width: 40px;height: 40px;margin: 10px;">
+      <button on:click=toggle_sidebar id="humbugger_button">
         =
       </button>
-      <button on:click=add_session style="position: absolute;bottom: 0;left: 0;width: 40px;height: 40px;margin: 10px;">
+      <button on:click=add_session id="new_session_button">
         +
       </button>
-      <main style="height:100%;flex: 1 1 auto;width:100%;min-width:0;">
+      <main class="main">
         {move || match state.selected_session() {
           Some(selected_session) => {
             Either::Right(
               view! {
-                <div style="display:flex;flex-direction: column;height:100%;">
-                  <div id="map" style="height:500px;width:100%;flex:0 0 auto"></div>
-
-                  <SuggestionTabContent
-                    suggestion=selected_session.selected_suggestion()
-                    {..}
-                    style="flex: 1 1 auto;background-color:grey;overflow-y:auto;"
-                  />
-                  <SuggestionTabBar
-                    session={selected_session}
-                    {..}
-                    style="display:flex; direction:rtl;flex: 0 1 auto;overflow-x: auto;"
-                  />
-                  <div
-                    style:margin-left=move || is_sidebar_visible.with(|f| f.then_some("0px").unwrap_or("60px"))
-                    style="display:flex;align-items:end;flex:0 0 auto;transition: margin-left 100ms;"
-                  >
-                    <textarea
-                      style="field-sizing: content;border:2;margin-right:10px;padding:10px;
-                      border-color:#DDDDDD;background:#EEEEEE;
-                      border-radius:20px;flex: 1 1 auto;min-height:60px;max-height:300px;direction:rtl;font-size:20px"
-                      name="prompt"
-                      bind:value=state.prompt_text()
-                    />
-                    <button
-                      style="background:#dee0f5; color:#1e211d; border-radius:10px; border: 0;
-                      width:60px;height:60px;font-size:24px;
-                      box-shadow: 0 0 5px rgba(0, 0, 0, 0.32)"
-                      on:click=answer
-                    >
+                <div class="session">
+                  <div id="map"></div>
+                  <ol class="suggestions">
+                    {move || {
+                      selected_session
+                        .suggestions()
+                        .iter_unkeyed()
+                        .enumerate()
+                        .map(|(index, suggestion)| {
+                          view! { <SuggestionItem suggestion index /> }
+                        })
+                        .collect_view()
+                    }}
+                  </ol>
+                  <div class="bottom_bar" class:open=is_sidebar_visible>
+                    <textarea class="prompt" name="prompt" bind:value=state.prompt_text() />
+                    <button class="send" on:click=answer>
                       ">"
                     </button>
                   </div>
@@ -472,73 +449,56 @@ pub fn App() -> impl IntoView {
   }
 }
 
-#[component]
-fn SuggestionTabBar(#[prop(into)] session: Field<Session>) -> impl IntoView {
-  view! {
-    <div>
-      {move || {
-        session
-          .suggestions()
-          .iter_unkeyed()
-          .enumerate()
-          .map(|(index, suggestion)| {
-            view! {
-              <p
-                style="padding:10px; background-color: #rgb(235, 250, 148);"
-                on:click=move |_| session.write().selected_suggestion = Some(suggestion.into())
-              >
+// #[component]
+// fn SuggestionTabBar(#[prop(into)] session: Field<Session>) -> impl IntoView {
+//   view! {
+//     <div>
+//       {move || {
+//         session
+//           .suggestions()
+//           .iter_unkeyed()
+//           .enumerate()
+//           .map(|(index, suggestion)| {
+//             view! {
+//               <p
+//                 style="padding:10px; background-color: #rgb(235, 250, 148);"
+//                 on:click=move |_| session.write().selected_suggestion = Some(suggestion.into())
+//               >
 
-                {move || format!("پیشتنهاد {}", index + 1)}
-              </p>
-            }
-          })
-          .collect_view()
-      }}
-    </div>
+//                 {move || format!("پیشتنهاد {}", index + 1)}
+//               </p>
+//             }
+//           })
+//           .collect_view()
+//       }}
+//     </div>
+//   }
+// }
+
+#[component]
+fn SuggestionItem(#[prop(into)] suggestion: Field<Suggestion>, index: usize) -> impl IntoView {
+  view! {
+    <li class="item">
+      // <div class="c-stepper__content">
+      // <For each=move||suggestion.places().into_iter() key=move|place|place.get().clone() let:place>
+      // <PlaceCard place=place.get() />
+      // </For>
+      <div class="options">
+        <div class="step_number">{index}</div>
+        <button class="next_suggestion">">"</button>
+        <button class="previous_suggestion">"<"</button>
+      </div>
+      <PlaceCard place=suggestion.selected_place() {..} class="card" />
+    // </div>
+    </li>
   }
 }
 
 #[component]
-fn SuggestionTabContent(#[prop(into)] suggestion: Option<Field<Suggestion>>) -> impl IntoView {
+fn PlaceCard(#[prop(into)] place: Field<Place>) -> impl IntoView {
+  let place = place.get();
   view! {
     <div>
-      {move || match suggestion {
-        Some(suggestion) => {
-          Either::Right(
-            view! {
-              <div style="direction: rtl;">
-                <ol class="c-stepper">
-                  {move || {
-                    suggestion
-                      .places()
-                      .get()
-                      .into_iter()
-                      .map(|place| {
-                        view! {
-                          <li class="c-stepper__item">
-                            <div class="c-stepper__content">
-                              <PlaceCard place />
-                            </div>
-                          </li>
-                        }
-                      })
-                      .collect_view()
-                  }}
-                </ol>
-              </div>
-            },
-          )
-        }
-        None => Either::Left(()),
-      }}
-    </div>
-  }
-}
-
-#[component]
-fn PlaceCard(place: Place) -> impl IntoView {
-  view! {
-    <div class="card">
       <h2>{place.title}</h2>
       <p>
         <strong>"Category:"</strong>
@@ -568,7 +528,7 @@ fn PlaceCard(place: Place) -> impl IntoView {
   }
 }
 
-async fn ask_ai(prompt: String) -> Suggestion {
+async fn ask_ai(prompt: String) -> Vec<Suggestion> {
   // use rand::{rngs::StdRng, Rng as _, SeedableRng};
   // let mut rng: StdRng = StdRng::from_entropy();
 
@@ -737,75 +697,25 @@ async fn ask_ai(prompt: String) -> Suggestion {
     tmp
   };
 
-  Suggestion {
-    places: prompt_analyse
-      .place_infos
-      .iter()
-      .zip(repeat(&all_places))
-      .map(|(info, all_places)| {
-        all_places
-          .into_iter()
-          .filter(|place| {
-            place.r#type == info.place_type && place.tags.iter().any(|tag| info.tags.contains(tag))
-          })
-          // .cloned()
-          // .map(|place| PlaceScoring {
-          //   score: place.tags.iter().filter(|tag| info.tags.contains(tag)).count(),
-          //   place: place.clone(),
-          // })
-          .collect_vec()
-      })
-      .collect_vec(),
-  }
-  // // .collect::<Vec<Vec<PlaceScoring>>>()
-  // // .into_iter()
-  // // .unique()
-  // // .inspect(|f| console_log(&format!("{f:#?}")))
-  // // .collect::<Vec<Vec<PlaceScoring>>>()
-  // // .into_iter()
-  // .multi_cartesian_product()
-  // .map(|place_scoring_list| place_scoring_list.into_iter().unique().collect_vec())
-  // .unique()
-  // .sorted_by(|a, b| {
-  //   if a.len() != b.len() {
-  //     return b.len().cmp(&a.len());
-  //   }
-  //   let max_distance = 20.0; // km
-  //   let dist_a = a
-  //     .iter()
-  //     .circular_tuple_windows()
-  //     .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
-  //     .sum::<f64>();
-  //   let dist_b = b
-  //     .iter()
-  //     .circular_tuple_windows()
-  //     .map(|(item1, item2)| distance_haversine(&item1.place.location, &item2.place.location))
-  //     .sum::<f64>();
-
-  //   // Normalize distances to 0-1 scale
-  //   let norm_dist_a = dist_a / max_distance;
-  //   let norm_dist_b = dist_b / max_distance;
-
-  //   // Normalize scores to 0-1 scale (assuming higher score is better)
-  //   let score_a = a.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / a.len() as f64;
-  //   let score_b = b.iter().map(|item| (item.score) as f64 / 3.0).sum::<f64>() / b.len() as f64;
-
-  //   // Combine normalized distance and score. Here we use subtraction because lower distance and higher score are better.
-  //   // If you want to make distance and score equally important, you might adjust the weights.
-  //   let combined_a = (0.1 * norm_dist_a) - (0.9 * score_a);
-  //   let combined_b = (0.1 * norm_dist_b) - (0.9 * score_b);
-  //   combined_a.partial_cmp(&combined_b).unwrap_or(Equal)
-  // })
-  // // .inspect(|f| console_log(&format!("{f:#?}")))
-  // // .collect_vec()
-  // // .first()
-  // // .next()
-  // // .unwrap()
-  // // .into_iter()
-  // .map(|place_scoring_list| Suggestion {
-  //   places: place_scoring_list.into_iter().map(|place_scoring| place_scoring.place).collect_vec(),
-  // })
-  // .collect_vec()
+  prompt_analyse
+    .place_infos
+    .iter()
+    .zip(repeat(&all_places))
+    .map(|(info, all_places)| {
+      all_places
+        .into_iter()
+        .filter(|place| {
+          place.r#type == info.place_type && place.tags.iter().any(|tag| info.tags.contains(tag))
+        })
+        .cloned()
+        // .map(|place| PlaceScoring {
+        //   score: place.tags.iter().filter(|tag| info.tags.contains(tag)).count(),
+        //   place: place.clone(),
+        // })
+        .collect_vec()
+    })
+    .map(|f| Suggestion { selected_place: f[0].clone(), places: f })
+    .collect_vec()
 
   // let mut res = prompt_analyse
   //   .place_infos
