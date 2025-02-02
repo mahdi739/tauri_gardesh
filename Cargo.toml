@@ -5,9 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-leptos = { git = "https://github.com/leptos-rs/leptos", features = ["csr"] }
-reactive_stores = { git = "https://github.com/leptos-rs/leptos", package = "reactive_stores" }
-reactive_stores_macro = { git = "https://github.com/leptos-rs/leptos", package = "reactive_stores_macro" }
+leptos = { git = "https://github.com/leptos-rs/leptos/", features = ["csr"] }
+reactive_stores = { git = "https://github.com/leptos-rs/leptos/" }
+reactive_stores_macro = { git = "https://github.com/leptos-rs/leptos/" }
 console_log = "1"
 log = "0.4.22"
 console_error_panic_hook = "0.1.7"
@@ -22,6 +22,11 @@ dotenvy_macro = "0.15.7"
 strum = { version = "0.26.3", features = ["derive", "strum_macros"] }
 genai = { version = "0.1.18-WIP", path = "/home/mahdi/Projects/GitHub/genai-0.1.17" }
 iter_tools = { version = "0.24.0", features = ["full"] }
+derive_more = { version = "1.0.0", features = ["full"] }
+better_default = "1.0.5"
+# send_wrapper = "0.6.0"
+# cursor = "2.3.0"
+# leptos-use = { version = "0.15.5", features = ["use_cycle_list"] }
 
 # similarity = "0.1.2"
 # ndarray = "0.16.1"

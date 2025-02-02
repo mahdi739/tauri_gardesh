@@ -1,6 +1,4 @@
 mod app;
-// mod groq_impl;
-
 use app::*;
 use leptos::prelude::*;
 

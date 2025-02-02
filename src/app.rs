@@ -1,11 +1,11 @@
 #![allow(unused)]
 
+use better_default::Default;
 use dotenvy_macro::dotenv;
 use genai::adapter::AdapterKind;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatResponseFormat, JsonSpec};
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
 use genai::{Client, ClientConfig, ModelIden, ServiceTarget};
-
 use guards::{Mapped, MappedMutArc, Plain};
 use iter_tools::Itertools;
 use leptos::html::div;
@@ -136,26 +136,27 @@ pub struct State {
   prompt_text: String, // should be in session
   #[store(key: DateTime<Local> = |session| session.date_created)]
   sessions: Vec<Session>,
-  #[store(skip)]
-  selected_session: Option<Field<Session>>,
+  #[default(true)]
+  is_sidebar_visible: bool,
+  answering: bool,
 }
-pub trait StateExt {
-  fn selected_session(&self) -> Option<Field<Session>>;
-}
-impl StateExt for Store<State> {
-  fn selected_session(&self) -> Option<Field<Session>> {
-    self.with(|f| f.selected_session)
-  }
-}
-impl Debug for State {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("State")
-      .field("prompt_text", &self.prompt_text)
-      .field("sessions", &self.sessions)
-      .field("selected_session", &"Not Implemented")
-      .finish()
-  }
-}
+// pub trait StateExt {
+//   fn selected_session(&self) -> Option<Field<Session>>;
+// }
+// impl StateExt for Store<State> {
+//   fn selected_session(&self) -> Option<Field<Session>> {
+//     self.with(|f| f.selected_session)
+//   }
+// }
+// impl Debug for State {
+//   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//     f.debug_struct("State")
+//       .field("prompt_text", &self.prompt_text)
+//       .field("sessions", &self.sessions)
+//       .field("selected_session", &"Not Implemented")
+//       .finish()
+//   }
+// }
 
 // impl Hash for State {
 //   fn hash<H: Hasher>(&self, state: &mut H) {
@@ -214,9 +215,32 @@ impl PartialEq for Session {
 
 #[derive(Debug, Store, PartialEq, Eq, Hash, Clone)]
 pub struct Suggestion {
-  #[store(key:Place = |place|place.clone())]
   places: Vec<Place>,
   selected_place: Place,
+}
+pub trait SuggestionExt {
+  fn next(&self);
+  fn prev(&self);
+}
+impl SuggestionExt for Field<Suggestion> {
+  fn next(&self) {
+    let index = self
+      .places()
+      .with(|p| p.iter().position(|f| self.selected_place().with(|s| *s == *f)).unwrap())
+      as isize;
+    let len = self.places().with(Vec::len);
+    let new_index = ((index + 1) % len as isize) as usize % len;
+    self.selected_place().set(self.places().with(|f| f[new_index].clone()));
+  }
+  fn prev(&self) {
+    let index = self
+      .places()
+      .with(|p| p.iter().position(|f| self.selected_place().with(|s| *s == *f)).unwrap())
+      as isize;
+    let len = self.places().with(Vec::len);
+    let new_index = ((index - 1) % len as isize) as usize % len;
+    self.selected_place().set(self.places().with(|f| f[new_index].clone()));
+  }
 }
 
 #[wasm_bindgen]
@@ -289,76 +313,65 @@ fn config_map(options: &Object) {
 
 #[component]
 pub fn App() -> impl IntoView {
+  let state = Store::new(State::default());
+  let selected_session: RwSignal<Option<Field<Session>>> = RwSignal::new(None);
   let map_options = Object::new();
-  // config_map(&map_options);
-  let places = RwSignal::new(Vec::<Place>::new());
+  config_map(&map_options);
   let markers = StoredValue::new_local(Vec::<Marker>::new());
   let map_ref: RwSignal<Option<Map>, LocalStorage> = RwSignal::new_local(None);
-  Effect::new(move |old_places: Option<Vec<Place>>| {
-    if let Some(old_places) = old_places {
+  Effect::new(move |_| {
+    if let (Some(selected_session), Some(map_ref)) = (selected_session.get(), map_ref.get()) {
       markers.get_value().iter().for_each(Marker::remove);
       markers.set_value(
-        places
-          .get()
-          .iter()
-          .map(|place| {
-            Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
-              &JsValue::from_f64(place.location.x),
-              &JsValue::from_f64(place.location.y),
-            )))
+        selected_session
+          .suggestions()
+          .iter_unkeyed()
+          .map(|sg| {
+            let (x, y) = sg.selected_place().with(|f| (f.location.x, f.location.y));
+            Marker::newMarker()
+              .setLngLat(&JsValue::from(Array::of2(&JsValue::from_f64(x), &JsValue::from_f64(y))))
           })
           .inspect(|marker| {
-            marker.addTo(map_ref.get().as_ref().unwrap());
+            marker.addTo(&map_ref);
           })
           .collect_vec(),
       );
     }
-    places.get()
   });
 
-  request_animation_frame(move || {
-    map_ref.set(Some(Map::newMap(&JsValue::from(map_options))));
-  });
-
-  let state = Store::new(State::default());
-  // state.selected_session().;
   let answer = move |ev: MouseEvent| {
     spawn_local(async move {
+      state.answering().set(true);
       let answer = ask_ai(state.prompt_text().get()).await;
-      // console_log(&format!("{:#?}", answer.clone()));
-      state.selected_session().map(|ss| ss.write().suggestions = answer);
+      state.answering().set(false);
+      console_log(&format!("{:#?}", answer.clone()));
+      selected_session.update(|f| {
+        f.map(|ss| ss.write().suggestions = answer);
+      });
     });
   };
 
-  let r = format!("{:#?}", state.path().into_iter().collect_vec());
+  // let r = format!("{:#?}", state.path().into_iter().collect_vec());
   // state.read().selected_session.unwrap().date_created()
   // state.sessions().at_unkeyed(0).reader()
   // console_log(&"About to rendering view");
   // let r = AtKeyed::new(state.sessions(), state.sessions()..get()[0].date_created);
 
   // state.sessions().at_unkeyed(0).date_created().get()
-  Effect::new(
-    move |old_sessions: Option<
-      KeyedSubfield<Store<State>, State, DateTime<Local>, Vec<Session>>,
-    >| {
-      if let Some(old_sessions) = old_sessions {
-        // console_log(&format!(
-        //   "{:#?}",
-        //   state.sessions().at_unkeyed(0).path().into_iter().collect_vec()
-        // ));
-        if state.with_untracked(|f| {
-          f.selected_session
-            .get_untracked()
-            .map(|ss| f.sessions.contains(&ss).not())
-            .unwrap_or(false)
-        }) {
-          state.write().selected_session = None;
-        }
+  Effect::new(move |_| {
+    let map_options = map_options.clone();
+    request_animation_frame(move || {
+      // console_log(&format!("Checking...\n {:#?},\n{:#?}",map_ref.get().map(|m|m.obj),selected_session.get().get()));
+      if map_ref.read().is_none() && selected_session.read().is_some() {
+        console_log("Setting...");
+        map_ref.set(Some(Map::newMap(&JsValue::from(map_options))));
+      } else if selected_session.read().is_none() {
+        map_ref.set(None);
       }
-      state.sessions().track_field();
-      state.sessions()
-    },
-  );
+    });
+
+    selected_session.track();
+  });
   // Effect::new(move |old_suggestions| {
   //   if let Some(old_suggestions) = old_suggestions {
   //     if state.selected_session().with_untracked(|q| {
@@ -372,28 +385,39 @@ pub fn App() -> impl IntoView {
   //   state.selected_session().track();
   //   state.selected_session().map(|f| f.suggestions())
   // });
-  let is_sidebar_visible = RwSignal::new(true);
-  let toggle_sidebar = move |_| is_sidebar_visible.update(|f| *f = !*f);
+  // let is_sidebar_visible = RwSignal::new(true);
+  let toggle_sidebar = move |_| state.is_sidebar_visible().update(|f| *f = !*f);
   let add_session = move |_| {
-    state.sessions().write().push(Session {
-      // selected_suggestion: None,
-      date_created: Local::now(),
-      suggestions: Vec::new(),
-      title: "جلسه جدید".to_string(),
-    });
+    state.sessions().write().insert(
+      0,
+      Session {
+        // selected_suggestion: None,
+        date_created: Local::now(),
+        suggestions: Vec::new(),
+        title: "جلسه ".to_string(),
+      },
+    );
+    selected_session.set(state.sessions().into_iter().next().map(Into::into));
   };
+
+  state.sessions().write().push(Session {
+    date_created: Local::now(),
+    suggestions: Vec::new(),
+    title: "جلسه ".to_string(),
+  });
+  selected_session.set(state.sessions().into_iter().next().map(Into::into));
 
   view! {
     <div id="app">
-      <aside class="sidebar" class:open=is_sidebar_visible>
-        <ul id="sessions">
+      <aside class="sidebar" class:open=move || state.is_sidebar_visible().get()>
+        <ul class="sessions">
           <ForEnumerate each=move || state.sessions() key=|item| item.date_created().get() let(index, session)>
             <li
-              class:selected=move || state.selected_session().is_some_and(|f| *f.read() == *session.read())
+              class:selected=move || selected_session.read().is_some_and(|f| *f.read() == *session.read())
               class="item"
               on:click=move |event: MouseEvent| {
                 event.stop_propagation();
-                state.write().selected_session = Some(session.into());
+                selected_session.set(Some(session.into()));
               }
               on:mousedown=move |event: MouseEvent| {
                 event.stop_propagation();
@@ -402,162 +426,142 @@ pub fn App() -> impl IntoView {
                 }
               }
             >
-              {move || format!("{}\n{}", session.title().get(), session.date_created().get().to_string())}
+              <button
+                on:click=move |_| {
+                  let selected_session_value = selected_session.get().map(|f| f.get());
+                  let session_value = session.get();
+                  state
+                    .sessions()
+                    .update(|s| {
+                      s.remove(index.get());
+                    });
+                  if selected_session_value.is_some_and(|f| f == session_value) {
+                    selected_session.set(None);
+                    selected_session.set(state.sessions().into_iter().next().map(Into::into));
+                  }
+                }
+                class="fa fa-trash delete"
+              ></button>
+              {move || format!("{}\n{}", session.title().get(), session.date_created().get().format("%d/%m/%Y %H:%M"))}
+
             </li>
           </ForEnumerate>
         </ul>
       </aside>
-      <button on:click=toggle_sidebar id="humbugger_button">
-        =
+      <button on:click=toggle_sidebar id="humbugger_button" class="fa fa-bars" />
+      <button
+        on:click=add_session
+        id="new_session_button"
+        class="fa fa-plus"
+        class:open=move || state.is_sidebar_visible().get()
+      >
+        <span>{move || state.is_sidebar_visible().get().then_some(" چت جدید").unwrap_or("")}</span>
       </button>
-      <button on:click=add_session id="new_session_button">
-        +
-      </button>
+
       <main class="main">
-        {move || match state.selected_session() {
+        {move || match selected_session.get() {
           Some(selected_session) => {
             Either::Right(
               view! {
                 <div class="session">
                   <div id="map"></div>
-                  <ol class="suggestions">
-                    {move || {
-                      selected_session
-                        .suggestions()
-                        .iter_unkeyed()
-                        .enumerate()
-                        .map(|(index, suggestion)| {
-                          view! { <SuggestionItem suggestion index /> }
-                        })
-                        .collect_view()
-                    }}
-                  </ol>
-                  <div class="bottom_bar" class:open=is_sidebar_visible>
-                    <textarea class="prompt" name="prompt" bind:value=state.prompt_text() />
-                    <button class="send" on:click=answer>
-                      ">"
-                    </button>
+                  <Suggestions selected_session {..} class="suggestions" />
+                  <div class="bottom_bar">
+                    <textarea
+                      class="prompt"
+                      name="prompt"
+                      bind:value=state.prompt_text()
+                      class:open=move || state.is_sidebar_visible().get()
+                    />
+                    <button class="fa fa-send send" on:click=answer disabled=move || state.answering().get()></button>
                   </div>
                 </div>
               },
             )
           }
-          None => Either::Left(().into_view()),
+          None => Either::Left(()),
         }}
       </main>
     </div>
   }
 }
 
-// #[component]
-// fn SuggestionTabBar(#[prop(into)] session: Field<Session>) -> impl IntoView {
-//   view! {
-//     <div>
-//       {move || {
-//         session
-//           .suggestions()
-//           .iter_unkeyed()
-//           .enumerate()
-//           .map(|(index, suggestion)| {
-//             view! {
-//               <p
-//                 style="padding:10px; background-color: #rgb(235, 250, 148);"
-//                 on:click=move |_| session.write().selected_suggestion = Some(suggestion.into())
-//               >
+#[component]
+fn Suggestions(#[prop(into)] selected_session: Field<Session>) -> impl IntoView {
+  view! {
+    <ol>
+      {move || {
+        selected_session
+          .suggestions()
+          .iter_unkeyed()
+          .enumerate()
+          .map(|(index, suggestion)| {
 
-//                 {move || format!("پیشتنهاد {}", index + 1)}
-//               </p>
-//             }
-//           })
-//           .collect_view()
-//       }}
-//     </div>
-//   }
-// }
+            view! { <SuggestionItem suggestion index {..} class="item" /> }
+          })
+          .collect_view()
+      }}
+    </ol>
+  }
+}
 
 #[component]
 fn SuggestionItem(#[prop(into)] suggestion: Field<Suggestion>, index: usize) -> impl IntoView {
   view! {
-    <li class="item">
-      // <div class="c-stepper__content">
-      // <For each=move||suggestion.places().into_iter() key=move|place|place.get().clone() let:place>
-      // <PlaceCard place=place.get() />
-      // </For>
+    <li>
       <div class="options">
-        <div class="step_number">{index}</div>
-        <button class="next_suggestion">">"</button>
-        <button class="previous_suggestion">"<"</button>
+        <div class="step_number">{index + 1}</div>
+        {move || {
+          (suggestion.places().iter_unkeyed().count() > 1)
+            .then_some(
+              view! {
+                <button on:click=move |_| suggestion.next() class="next_suggestion fa fa-angle-right" />
+                <button on:click=move |_| suggestion.prev() class="previous_suggestion fa fa-angle-left" />
+              },
+            )
+        }}
+
       </div>
       <PlaceCard place=suggestion.selected_place() {..} class="card" />
-    // </div>
     </li>
   }
 }
 
 #[component]
 fn PlaceCard(#[prop(into)] place: Field<Place>) -> impl IntoView {
-  let place = place.get();
+  // let place = place.get();
   view! {
     <div>
-      <h2>{place.title}</h2>
+      <h2>{move || place.read().title.clone()}</h2>
       <p>
         <strong>"Category:"</strong>
-        {place.category}
+        {move || place.read().category.clone()}
       </p>
       <p>
         <strong>"Type:"</strong>
-        {place.r#type.to_string()}
+        {move || place.read().r#type.to_string()}
       </p>
       <p>
         <strong>"Region:"</strong>
-        {place.region}
+        {move || place.read().region.clone()}
       </p>
       <p>
         <strong>"Neighbourhood:"</strong>
-        {place.neighbourhood}
+        {move || place.read().neighbourhood.clone()}
       </p>
       <p>
         <strong>"Location:"</strong>
-        {format!("{}, {}", place.location.x, place.location.y)}
+        {move || format!("{}, {}", place.read().location.x, place.read().location.y)}
       </p>
       <p>
         <strong>Tags:</strong>
-        {place.tags.join(", ")}
+        {move || place.read().tags.join(", ")}
       </p>
     </div>
   }
 }
 
 async fn ask_ai(prompt: String) -> Vec<Suggestion> {
-  // use rand::{rngs::StdRng, Rng as _, SeedableRng};
-  // let mut rng: StdRng = StdRng::from_entropy();
-
-  // let random_points = (0..20000)
-  //   .map(|_| {
-  //     let lat = rng.gen_range(35.60..=35.80);
-  //     let lng = rng.gen_range(51.20..=51.50);
-  //     [lat, lng]
-  //   })
-  //   .collect_vec();
-  // use rstar::RTree;
-  // let tree = RTree::bulk_load(random_points);
-  // let n = Instant::now();
-  // let random_points = (0..10)
-  //   .map(|_| {
-  //     let lat = rng.gen_range(35.60..=35.80);
-  //     let lng = rng.gen_range(51.20..=51.50);
-  //     [lat, lng]
-  //   })
-  //   .for_each(|f| {
-  //     let nearest_neighbors = tree.nearest_neighbor_iter(&f).collect_vec();
-
-  //     println!("{nearest_neighbors:#?}");
-  //   });
-
-  // println!("Time Passed: {}", n.elapsed().as_millis());
-
-  // Lat: 35.60 - 35.80
-  // Long: 51.20 - 51.50
   let mut neshan_history = serde_json::from_str::<NeshanDataModel>(include_str!(
     "taged_items/neshan_history_results_unique_with_tags.json"
   ))
