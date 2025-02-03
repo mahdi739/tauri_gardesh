@@ -103,6 +103,36 @@ button {
         }
       }
     }
+
+    >#humbugger_button {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 40px;
+      height: 40px;
+      margin: 10px;
+      z-index: 3;
+    }
+
+    >#new_session_button {
+      direction: rtl;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 40px;
+      margin: 10px;
+      z-index: 3;
+      width: 40px;
+      transition: width 100ms;
+
+      &.open {
+        width: 100px;
+      }
+
+      span {
+        font-family: Tahoma;
+      }
+    }
   }
 
   >.main {
@@ -219,31 +249,4 @@ button {
     }
   }
 
-  >#humbugger_button {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 40px;
-    height: 40px;
-    margin: 10px;
-    z-index: 3;
-  }
-
-  >#new_session_button {
-    direction: rtl;
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    height: 40px;
-    margin: 10px;
-    z-index: 3;
-    width: 40px;
-    transition: width 100ms;
-    &.open {
-      width: 100px;
-    }
-    span{
-      font-family: Tahoma;
-    }
-  }
 }
