@@ -1,3 +1,0 @@
-[submodule "src-tauri/vec-embed-store"]
-	path = src-tauri/vec-embed-store
-	url = https://github.com/samkeen/vec-embed-store
