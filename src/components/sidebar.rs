@@ -47,11 +47,7 @@ pub fn Sidebar(
               on:click=move |_| {
                 let selected_session_value = selected_session.get().map(|f| f.get());
                 let session_value = session.get();
-                state
-                  .sessions()
-                  .update(|s| {
-                    s.remove(index.get());
-                  });
+                state.sessions().write().remove(index.get());
                 if selected_session_value.is_some_and(|f| f == session_value) {
                   selected_session.set(None);
                   selected_session.set(state.sessions().into_iter().next().map(Into::into));

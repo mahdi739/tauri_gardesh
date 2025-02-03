@@ -94,7 +94,7 @@ pub fn App() -> impl IntoView {
 
     selected_session.track();
   });
-
+  
   state.sessions().write().push(Session {
     date_created: Local::now(),
     suggestions: Vec::new(),
