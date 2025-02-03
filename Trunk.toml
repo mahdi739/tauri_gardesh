@@ -1,5 +1,6 @@
 [build]
-filehash = true     # If you set it to false the rebuild doesn't make page reload the new files
+filehash = false              # If you set it to false the rebuild doesn't make page reload the new files
+public_url = "/tauri_gardesh"
 no-sri = true
 release = false
 
