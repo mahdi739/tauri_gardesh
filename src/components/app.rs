@@ -1,4 +1,4 @@
-use crate::components::session::SessionContent;
+use crate::components::session_content::SessionContent;
 use crate::components::sidebar::Sidebar;
 
 use crate::{
