@@ -341,7 +341,8 @@ async fn ask_ai(prompt: String) -> Vec<Suggestion> {
   // -- Build the chat request options (used per execution chat)
   let chat_res = client
     .exec_chat(
-      "gemini-1.5-pro",
+      // "gemini-1.5-pro",
+      "gemini-1.5-flash-8b",
       chat_req.clone(),
       Some(&ChatOptions::default().with_max_tokens(1000)),
     )

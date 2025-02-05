@@ -6,9 +6,9 @@ use crate::{components::suggestion_item::SuggestionItem, Session, SessionStoreFi
 
 #[component]
 pub fn Suggestions(#[prop(into)] session: Field<Session>) -> impl IntoView {
-  Effect::new(move |_| {
-    console_log(&format!("{:#?}", session.suggestions().get()));
-  });
+  // Effect::new(move |_| {
+  //   console_log(&format!("{:#?}", session.suggestions().get()));
+  // });
 
   view! {
     <ol>

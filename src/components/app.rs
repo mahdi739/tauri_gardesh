@@ -8,6 +8,7 @@ use chrono::Local;
 use dotenvy_macro::dotenv;
 use iter_tools::Itertools;
 use leptos::leptos_dom::logging::console_log;
+use leptos::tachys::html::node_ref::{self, node_ref};
 use leptos::{either::Either, prelude::*};
 use reactive_stores::{Field, Store, StoreFieldIterator};
 use wasm_bindgen::prelude::*;
@@ -60,41 +61,41 @@ pub fn App() -> impl IntoView {
   config_map(&map_options);
   let markers = StoredValue::new_local(Vec::<Marker>::new());
   let map_ref: RwSignal<Option<Map>, LocalStorage> = RwSignal::new_local(None);
-  Effect::new(move |_| {
-    if let (Some(selected_session), Some(map_ref)) = (selected_session.get(), map_ref.get()) {
-      markers.get_value().iter().for_each(Marker::remove);
-      markers.set_value(
-        selected_session
-          .suggestions()
-          .iter_unkeyed()
-          .map(|sg| {
-            let (x, y) = sg.selected_place().with(|f| (f.location.x, f.location.y));
-            Marker::newMarker()
-              .setLngLat(&JsValue::from(Array::of2(&JsValue::from_f64(x), &JsValue::from_f64(y))))
-          })
-          .inspect(|marker| {
-            marker.addTo(&map_ref);
-          })
-          .collect_vec(),
-      );
-    }
-  });
 
   Effect::new(move |_| {
     let map_options = map_options.clone();
-    request_animation_frame(move || {
-      // console_log(&format!("Checking...\n {:#?},\n{:#?}",map_ref.get().map(|m|m.obj),selected_session.get().get()));
-      if map_ref.read().is_none() && selected_session.read().is_some() {
-        console_log("Setting...");
-        map_ref.set(Some(Map::newMap(&JsValue::from(map_options))));
-      } else if selected_session.read().is_none() {
-        map_ref.set(None);
+    // request_animation_frame(move || {
+    match (selected_session.try_get().flatten(), map_ref.try_get().flatten()) {
+      (None, Some(_)) => map_ref.set(None),
+      (Some(_), None) => map_ref.set(Some(Map::newMap(&JsValue::from(map_options)))),
+      (Some(selected_session), Some(map_ref)) => {
+        markers.get_value().iter().for_each(Marker::remove);
+        markers.set_value(
+          selected_session
+            .read()
+            .suggestions
+            .iter()
+            .map(|sg| {
+              // let (x, y) = sg.selected_place().with(|f| (f.location.x, f.location.y));
+              Marker::newMarker().setLngLat(&JsValue::from(Array::of2(
+                &JsValue::from_f64(sg.selected_place.location.x),
+                &JsValue::from_f64(sg.selected_place.location.y),
+              )))
+            })
+            .inspect(|marker| {
+              // let rr = web_sys::Element::from(JsValue::from(marker));
+              // web_sys::Element::set_class_name(&rr, "c");
+              marker.addTo(&map_ref);
+            })
+            .collect_vec(),
+        );
       }
-    });
-
-    selected_session.track();
+      (None, None) => {}
+    }
   });
-  
+  // selected_session.track();
+  // });
+
   state.sessions().write().push(Session {
     date_created: Local::now(),
     suggestions: Vec::new(),
